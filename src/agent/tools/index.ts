@@ -7,6 +7,7 @@ export { createExecTool } from "./exec.js";
 export { createProcessTool } from "./process.js";
 export { createGlobTool } from "./glob.js";
 export { createWebFetchTool, createWebSearchTool } from "./web/index.js";
+export { createCronTool } from "./cron/index.js";
 
 // Tool groups
 export {
