@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AsyncAgent } from "../agent/async-agent.js";
 import {
   DEFAULT_HEARTBEAT_ACK_MAX_CHARS,
@@ -73,22 +72,6 @@ function resolveDurationMs(raw: string | undefined): number | null {
   return null;
 }
 
-function extractMessageText(message: AgentMessage | undefined): string {
-  if (!message) return "";
-  const raw = (message as { content?: unknown }).content;
-  if (typeof raw === "string") return raw;
-  if (!Array.isArray(raw)) return "";
-
-  const parts: string[] = [];
-  for (const block of raw) {
-    if (!block || typeof block !== "object") continue;
-    const text = (block as { text?: unknown }).text;
-    if (typeof text === "string" && text.trim()) {
-      parts.push(text);
-    }
-  }
-  return parts.join("\n").trim();
-}
 
 function getHeartbeatConfig(agent: AsyncAgent | null): HeartbeatConfig {
   const cfg = agent?.getHeartbeatConfig();
@@ -167,7 +150,6 @@ export async function runHeartbeatOnce(opts: {
     }
 
     await agent.ensureInitialized();
-    const beforeMessages = agent.getMessages();
     const sessionKey = resolveSessionKey(agent);
     const pendingEvents = drainSystemEvents(sessionKey);
 
@@ -176,15 +158,11 @@ export async function runHeartbeatOnce(opts: {
       ? `${basePrompt}\n\nSystem events:\n${pendingEvents.map((line) => `- ${line}`).join("\n")}`
       : basePrompt;
 
-    agent.write(prompt, { injectTimestamp: false });
-    await agent.waitForIdle();
-
-    const afterMessages = agent.getMessages();
-    const appended = afterMessages.slice(beforeMessages.length);
-    const assistant = [...appended]
-      .reverse()
-      .find((msg) => msg.role === "assistant");
-    const text = extractMessageText(assistant);
+    const result = await agent.runInternalForResult(prompt);
+    if (result.error) {
+      throw new Error(result.error);
+    }
+    const text = result.text;
 
     if (!text.trim()) {
       const okEmptyEvent: Omit<HeartbeatEventPayload, "ts"> = {

@@ -149,6 +149,33 @@ export class AsyncAgent {
       });
   }
 
+  /**
+   * Run an internal prompt and return the result.
+   * Serialized through the write queue. Messages are persisted with
+   * `internal: true` and rolled back from in-memory state, so they
+   * won't appear in UI history or `getMessages()`.
+   */
+  runInternalForResult(content: string): Promise<{ text: string; error?: string }> {
+    if (this._closed) return Promise.resolve({ text: "", error: "Agent is closed" });
+    return new Promise((resolve) => {
+      this.queue = this.queue
+        .then(async () => {
+          if (this._closed) {
+            resolve({ text: "", error: "Agent is closed" });
+            return;
+          }
+          const result = await this.agent.runInternal(content);
+          await this.agent.flushSession();
+          resolve({ text: result.text, error: result.error });
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[AsyncAgent] runInternalForResult failed: ${message}`);
+          resolve({ text: "", error: message });
+        });
+    });
+  }
+
   /** Continuously read channel stream (AgentEvent + error Messages) */
   read(): AsyncIterable<ChannelItem> {
     return this.channel;

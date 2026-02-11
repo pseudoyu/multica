@@ -8,9 +8,7 @@ type StubAgent = {
   closed: boolean;
   sessionId: string;
   ensureInitialized: () => Promise<void>;
-  getMessages: () => Array<any>;
-  write: (content: string, options?: { injectTimestamp?: boolean }) => void;
-  waitForIdle: () => Promise<void>;
+  runInternalForResult: (content: string) => Promise<{ text: string; error?: string }>;
   getHeartbeatConfig: () => { prompt?: string; ackMaxChars?: number; enabled?: boolean };
   getPendingWrites: () => number;
   getProfileDir: () => string | undefined;
@@ -21,19 +19,13 @@ function createStubAgent(opts?: {
   replyText?: string;
   heartbeatEnabled?: boolean;
 }): StubAgent {
-  const messages: Array<any> = [];
   const replyText = opts?.replyText ?? "HEARTBEAT_OK";
 
   return {
     closed: false,
     sessionId: "test-session",
     ensureInitialized: async () => {},
-    getMessages: () => messages,
-    write: (content: string) => {
-      messages.push({ role: "user", content });
-      messages.push({ role: "assistant", content: [{ type: "text", text: replyText }] });
-    },
-    waitForIdle: async () => {},
+    runInternalForResult: async () => ({ text: replyText }),
     getHeartbeatConfig: () =>
       typeof opts?.heartbeatEnabled === "boolean"
         ? { enabled: opts.heartbeatEnabled }
@@ -84,18 +76,18 @@ describe("heartbeat runner", () => {
     expect(result.status).toBe("ran");
   });
 
-  it("disables timestamp injection for heartbeat prompt writes", async () => {
-    const writes: Array<{ content: string; options?: { injectTimestamp?: boolean } }> = [];
+  it("uses runInternalForResult for heartbeat execution", async () => {
+    const calls: string[] = [];
     const agent = createStubAgent({ replyText: "HEARTBEAT_OK" });
-    const originalWrite = agent.write;
-    agent.write = (content, options) => {
-      writes.push(options ? { content, options } : { content });
-      originalWrite(content, options);
+    agent.runInternalForResult = async (content: string) => {
+      calls.push(content);
+      return { text: "HEARTBEAT_OK" };
     };
 
     await runHeartbeatOnce({ agent: agent as any, reason: "manual" });
 
-    expect(writes.length).toBeGreaterThan(0);
-    expect(writes[0]?.options?.injectTimestamp).toBe(false);
+    expect(calls.length).toBeGreaterThan(0);
+    // The prompt should contain heartbeat instructions
+    expect(calls[0]).toContain("heartbeat");
   });
 });
