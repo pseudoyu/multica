@@ -156,7 +156,8 @@ export default function ChannelsPage() {
   const { loading, error } = useChannelsStore()
 
   return (
-    <div className="h-full flex flex-col p-6 overflow-auto">
+    <div className="h-full overflow-auto">
+    <div className="container flex flex-col p-6">
       {/* Page Header */}
       <div className="mb-6">
         <h1 className="text-lg font-medium">Channels</h1>
@@ -175,6 +176,7 @@ export default function ChannelsPage() {
           <TelegramCard />
         )}
       </div>
+    </div>
     </div>
   )
 }

@@ -5,7 +5,8 @@ export default function CronsPage() {
   const { jobs, loading, error, toggleJob, removeJob, refresh } = useCronJobsStore()
 
   return (
-    <div className="h-full flex flex-col p-6 overflow-auto">
+    <div className="h-full overflow-auto">
+    <div className="container flex flex-col p-6">
       {/* Page Header */}
       <div className="mb-6">
         <h1 className="text-lg font-medium">Scheduled Tasks</h1>
@@ -25,6 +26,7 @@ export default function CronsPage() {
           onRefresh={refresh}
         />
       </div>
+    </div>
     </div>
   )
 }

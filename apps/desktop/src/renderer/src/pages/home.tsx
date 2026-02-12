@@ -155,7 +155,8 @@ export default function HomePage() {
   const capabilitySummary = `${skillStats.enabled} skills, ${enabledTools} tools, ${connectedChannels} channels, ${cronCount} scheduled tasks`
 
   return (
-    <div className="h-full flex flex-col p-6 overflow-auto">
+    <div className="h-full overflow-auto">
+    <div className="container flex flex-col p-6 h-full">
       {/* Page Header */}
       <div className="mb-6">
         <h1 className="text-lg font-medium">Dashboard</h1>
@@ -600,7 +601,7 @@ export default function HomePage() {
           </div>
 
           {/* Vertical Divider */}
-          <div className="w-px bg-border" />
+          <div className="w-px bg-border self-stretch" />
 
           {/* Right: Authorized Devices */}
           <div className="flex-1 flex flex-col min-h-0">
@@ -650,6 +651,7 @@ export default function HomePage() {
           }}
         />
       )}
+    </div>
     </div>
   )
 }
