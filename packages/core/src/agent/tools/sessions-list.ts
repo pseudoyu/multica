@@ -7,7 +7,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { listSubagentRuns, getSubagentRun } from "../subagent/registry.js";
+import { listSubagentRuns, getSubagentRun, getSubagentGroup } from "../subagent/registry.js";
 import type { SubagentRunRecord } from "../subagent/types.js";
 
 const SessionsListSchema = Type.Object({
@@ -79,6 +79,11 @@ function formatRunDetail(record: SubagentRunRecord, now: number): string {
   ];
 
   if (record.label) lines.push(`Label: ${record.label}`);
+  if (record.groupId) {
+    const group = getSubagentGroup(record.groupId);
+    lines.push(`Group: ${record.groupId}${group?.label ? ` (${group.label})` : ""}`);
+    if (group?.next) lines.push(`Continuation: ${group.next.slice(0, 120)}${group.next.length > 120 ? "…" : ""}`);
+  }
   lines.push(`Task: ${record.task}`);
   lines.push(`Status: ${status}${record.outcome?.error ? ` — ${record.outcome.error}` : ""}`);
   lines.push(`Child Session: ${record.childSessionId}`);
@@ -128,8 +133,7 @@ export function createSessionsListTool(
     description:
       "List all subagent runs spawned by this session and their current status. " +
       "Optionally pass a runId to get detailed information about a specific run. " +
-      "NOTE: Do NOT call this immediately after spawning subagents — results arrive automatically in your context when subagents complete. " +
-      "Only use this if a long time has passed or the user explicitly asks about subagent status.",
+      "Use this to check subagent progress or when the user asks about status.",
     parameters: SessionsListSchema,
     execute: async (_toolCallId, args) => {
       const { runId } = args as SessionsListArgs;
@@ -177,21 +181,59 @@ export function createSessionsListTool(
 
       const someRunning = runs.some((r) => !r.endedAt);
 
-      // Build status lines for each run
+      // Build status lines, grouping runs by groupId
       const statusLines: string[] = [];
-      for (let i = 0; i < runs.length; i++) {
-        const r = runs[i]!;
+      const groupedRuns = new Map<string, SubagentRunRecord[]>();
+      const ungroupedRuns: SubagentRunRecord[] = [];
+
+      for (const r of runs) {
+        if (r.groupId) {
+          const list = groupedRuns.get(r.groupId) ?? [];
+          list.push(r);
+          groupedRuns.set(r.groupId, list);
+        } else {
+          ungroupedRuns.push(r);
+        }
+      }
+
+      let idx = 0;
+
+      // Grouped runs
+      for (const [gId, gRuns] of groupedRuns) {
+        const group = getSubagentGroup(gId);
+        const groupLabel = group?.label || `Group ${gId.slice(0, 8)}…`;
+        const done = gRuns.filter(r => r.endedAt).length;
+        const nextSnippet = group?.next ? ` → next: "${group.next.slice(0, 60)}${group.next.length > 60 ? "…" : ""}"` : "";
+        statusLines.push(`\n  📦 ${groupLabel} (${done}/${gRuns.length} done${nextSnippet})`);
+
+        for (const r of gRuns) {
+          idx++;
+          const displayName = r.label || r.task.slice(0, 60);
+          const status = resolveStatus(r);
+          if (status === "running") {
+            const elapsed = r.startedAt ? formatElapsed(now - r.startedAt) : "just spawned";
+            statusLines.push(`     ${idx}. [RUNNING] "${displayName}" (${elapsed})`);
+          } else {
+            const elapsed = r.startedAt && r.endedAt ? formatElapsed(r.endedAt - r.startedAt) : "";
+            statusLines.push(`     ${idx}. [${status.toUpperCase()}] "${displayName}" (${elapsed})`);
+          }
+        }
+      }
+
+      // Ungrouped runs
+      for (const r of ungroupedRuns) {
+        idx++;
         const displayName = r.label || r.task.slice(0, 60);
         const status = resolveStatus(r);
         if (status === "running") {
           const elapsed = r.startedAt ? formatElapsed(now - r.startedAt) : "just spawned";
-          statusLines.push(`  ${i + 1}. [RUNNING] "${displayName}" (${elapsed})`);
+          statusLines.push(`  ${idx}. [RUNNING] "${displayName}" (${elapsed})`);
         } else {
           const elapsed = r.startedAt && r.endedAt ? formatElapsed(r.endedAt - r.startedAt) : "";
           const findings = r.findingsCaptured
             ? (r.findings ? r.findings.slice(0, 200) + (r.findings.length > 200 ? "…" : "") : "(no output)")
             : "(findings not yet captured)";
-          statusLines.push(`  ${i + 1}. [${status.toUpperCase()}] "${displayName}" (${elapsed})\n      Findings: ${findings}`);
+          statusLines.push(`  ${idx}. [${status.toUpperCase()}] "${displayName}" (${elapsed})\n      Findings: ${findings}`);
         }
       }
 

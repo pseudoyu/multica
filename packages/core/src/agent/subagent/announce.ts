@@ -193,12 +193,17 @@ export function formatAnnouncementMessage(params: FormatAnnouncementParams): str
 /**
  * Format a coalesced announcement message from multiple completed subagent runs.
  * When only one record is provided, delegates to formatAnnouncementMessage.
+ *
+ * @param next — Optional continuation prompt from a SubagentGroup. When present,
+ *   the parent agent is instructed to execute the continuation using the combined
+ *   findings, rather than just summarizing.
  */
 export function formatCoalescedAnnouncementMessage(
   records: SubagentRunRecord[],
+  next?: string,
 ): string {
-  // Single record: delegate to existing format for backward-compatible behavior
-  if (records.length === 1) {
+  // Single record without continuation: delegate to existing format
+  if (records.length === 1 && !next) {
     const r = records[0]!;
     return formatAnnouncementMessage({
       runId: r.runId,
@@ -214,10 +219,9 @@ export function formatCoalescedAnnouncementMessage(
     });
   }
 
-  // Multiple records: build combined message.
-  // Include a strict raw-findings section so parent can reliably cover every task result.
+  // Multiple records (or single with continuation): build combined message.
   const parts: string[] = [
-    `All ${records.length} background tasks have completed. Here are the combined results:`,
+    `All ${records.length} background task(s) have completed. Here are the combined results:`,
     "",
   ];
 
@@ -262,14 +266,30 @@ export function formatCoalescedAnnouncementMessage(
     );
   }
 
-  parts.push(
-    "",
-    "Summarize these results naturally for the user.",
-    "You MUST include findings from every task item above, without omission.",
-    "Keep it concise, but preserve concrete findings from each task.",
-    "Do not mention technical details like session IDs or that these were background tasks.",
-    "You can respond with NO_REPLY if no announcement is needed.",
-  );
+  // Continuation vs. summarization
+  if (next) {
+    parts.push(
+      "",
+      "---",
+      "",
+      "CONTINUATION TASK: The user's original request requires further work using the findings above.",
+      "Execute the following task now, using ALL the collected data:",
+      "",
+      next,
+      "",
+      "Use the raw findings above as your data source. Call tools as needed to complete this task.",
+      "Do not mention technical details like session IDs or that these were background tasks.",
+    );
+  } else {
+    parts.push(
+      "",
+      "Summarize these results naturally for the user.",
+      "You MUST include findings from every task item above, without omission.",
+      "Keep it concise, but preserve concrete findings from each task.",
+      "Do not mention technical details like session IDs or that these were background tasks.",
+      "You can respond with NO_REPLY if no announcement is needed.",
+    );
+  }
 
   return parts.join("\n");
 }
@@ -289,8 +309,9 @@ export function formatCoalescedAnnouncementMessage(
 export function runCoalescedAnnounceFlow(
   requesterSessionId: string,
   records: SubagentRunRecord[],
+  next?: string,
 ): boolean {
-  const message = formatCoalescedAnnouncementMessage(records);
+  const message = formatCoalescedAnnouncementMessage(records, next);
 
   try {
     const hub = getHub();

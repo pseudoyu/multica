@@ -12,6 +12,7 @@ const rmSyncMock = vi.fn();
 
 vi.mock("./registry-store.js", () => ({
   loadSubagentRuns: loadSubagentRunsMock,
+  loadSubagentGroups: vi.fn(() => new Map()),
   saveSubagentRuns: saveSubagentRunsMock,
 }));
 

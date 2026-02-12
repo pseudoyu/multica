@@ -10,7 +10,7 @@ import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { getHub } from "../../hub/hub-singleton.js";
 import { buildSubagentSystemPrompt } from "../subagent/announce.js";
-import { registerSubagentRun } from "../subagent/registry.js";
+import { registerSubagentRun, createSubagentGroup, getSubagentGroup } from "../subagent/registry.js";
 import { resolveTools } from "../tools.js";
 
 const SessionsSpawnSchema = Type.Object({
@@ -41,7 +41,26 @@ const SessionsSpawnSchema = Type.Object({
         "Announcement mode. 'immediate' (default): findings delivered as each subagent completes. " +
         "'silent': defer all announcements until every silent subagent from this session finishes, " +
         "then deliver one combined report. Use 'silent' when spawning multiple subagents to collect " +
-        "data in parallel and you want to summarize everything at once.",
+        "data in parallel and you want to summarize everything at once. " +
+        "Ignored when groupId is provided (groups always collect all results before announcing).",
+    }),
+  ),
+  groupId: Type.Optional(
+    Type.String({
+      description:
+        "Join an existing group. Pass the groupId returned by a previous sessions_spawn call " +
+        "to add this subagent to the same group. All runs in a group are announced together " +
+        "when the last one completes. If omitted AND 'next' is provided, a new group is created automatically.",
+    }),
+  ),
+  next: Type.Optional(
+    Type.String({
+      description:
+        "Continuation task to execute after ALL subagents in the group complete. " +
+        "Only used when creating a new group (first spawn without groupId). " +
+        "When set, the combined findings from all subagents plus this 'next' prompt " +
+        "are delivered to you so you can perform follow-up work (e.g. summarize, generate reports, write files). " +
+        "Setting 'next' automatically creates a group and implies silent collection.",
     }),
   ),
 });
@@ -53,12 +72,15 @@ type SessionsSpawnArgs = {
   cleanup?: "delete" | "keep";
   timeoutSeconds?: number;
   announce?: "immediate" | "silent";
+  groupId?: string;
+  next?: string;
 };
 
 export type SessionsSpawnResult = {
   status: "accepted" | "error";
   childSessionId?: string;
   runId?: string;
+  groupId?: string;
   error?: string;
 };
 
@@ -79,13 +101,15 @@ export function createSessionsSpawnTool(
     label: "Spawn Subagent",
     description:
       "Spawn a background subagent to handle a specific task. The subagent runs in an isolated session with its own tool set. " +
-      "When it completes, its findings are delivered directly into your context automatically — you do NOT need to poll or check. " +
-      "IMPORTANT: After spawning subagents, continue with any other immediate tasks you have, or simply finish your turn and wait. " +
-      "Do NOT call sessions_list to check on subagents you just spawned — results take time and will arrive on their own. " +
+      "When it completes, its findings are delivered directly into your context automatically. " +
+      "After spawning, do NOT proceed with work that depends on the results — but you can still chat or do unrelated tasks. " +
+      "When spawning multiple subagents for a collect-then-act workflow, ALWAYS use the `next` parameter " +
+      "on the first spawn to define follow-up work, then pass the returned groupId to subsequent spawns. " +
       "Use this for parallelizable work, long-running analysis, or tasks that benefit from isolation.",
     parameters: SessionsSpawnSchema,
     execute: async (_toolCallId, args) => {
-      const { task, label, model, cleanup = "delete", timeoutSeconds, announce } = args as SessionsSpawnArgs;
+      const { task, label, model, cleanup = "delete", timeoutSeconds, announce, next } = args as SessionsSpawnArgs;
+      let { groupId } = args as SessionsSpawnArgs;
 
       // Guard: subagents cannot spawn subagents
       if (options.isSubagent) {
@@ -101,6 +125,28 @@ export function createSessionsSpawnTool(
       const requesterSessionId = options.sessionId ?? "unknown";
       const runId = uuidv7();
       const childSessionId = uuidv7();
+
+      // Validate groupId if provided
+      if (groupId) {
+        const existingGroup = getSubagentGroup(groupId);
+        if (!existingGroup) {
+          return {
+            content: [{ type: "text", text: `Error: group not found: ${groupId}. Use the groupId returned by a previous sessions_spawn call.` }],
+            details: { status: "error", error: `group not found: ${groupId}` },
+          };
+        }
+      }
+
+      // Auto-create group when `next` is provided without an existing groupId
+      if (!groupId && next) {
+        groupId = uuidv7();
+        createSubagentGroup({
+          groupId,
+          requesterSessionId,
+          label: label ? `Group: ${label}` : undefined,
+          next,
+        });
+      }
 
       // Resolve tools for the subagent (with isSubagent=true for policy filtering)
       const subagentTools = resolveTools({ isSubagent: true });
@@ -135,21 +181,27 @@ export function createSessionsSpawnTool(
           label,
           cleanup,
           timeoutSeconds,
-          announce,
+          announce: groupId ? "silent" : announce,
+          groupId,
           start: () => childAgent.write(task),
         });
 
+        // Build response text
+        const groupInfo = groupId ? `\nGroup: ${groupId}` : "";
+        const nextInfo = next ? `\nContinuation: "${next.slice(0, 100)}${next.length > 100 ? "…" : ""}"` : "";
+        const responseText =
+          `Subagent spawned: ${label || task.slice(0, 80)}\n` +
+          `Run: ${runId}${groupInfo}${nextInfo}\n\n` +
+          `⏳ WAITING FOR RESULTS — do NOT proceed with work that depends on these results.\n` +
+          `Do NOT fabricate data or completion status. Results will arrive in your context automatically.`;
+
         return {
-          content: [
-            {
-              type: "text",
-              text: `Subagent spawned successfully.\n\nRun ID: ${runId}\nSession: ${childSessionId}\nTask: ${label || task.slice(0, 80)}\n\nThe subagent is now working in the background. Its findings will be delivered directly into your context when it completes — do NOT poll or call sessions_list for it. Continue with other tasks or finish your turn.`,
-            },
-          ],
+          content: [{ type: "text", text: responseText }],
           details: {
             status: "accepted",
             childSessionId,
             runId,
+            groupId,
           },
         };
       } catch (err) {

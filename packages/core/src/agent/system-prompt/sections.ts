@@ -262,23 +262,47 @@ export function buildConditionalToolSections(
     lines.push(
       "## Sub-Agents",
       "If a task is complex or long-running, spawn a sub-agent. It will do the work and report back when done.",
-      "IMPORTANT: After spawning sub-agents, do NOT immediately check on them with sessions_list. " +
-        "Results are delivered directly into your context automatically when the sub-agent finishes. " +
-        "Continue with other tasks or finish your turn and wait for the results to arrive.",
-      "You may use sessions_list to check on sub-agents only if a long time has passed or the user explicitly asks about their status.",
-      "Sub-agents cannot spawn nested sub-agents.",
+      "",
+      "### Critical Rules",
+      "- **NEVER fabricate, guess, or make up data that a sub-agent has not yet returned.** " +
+        "This includes completion status — do NOT claim tasks are done until you receive actual results.",
+      "- After spawning, do NOT proceed with work that depends on the sub-agent results. " +
+        "You can still chat with the user, do unrelated tasks, or explain what the sub-agents are working on.",
+      "- Sub-agents cannot spawn nested sub-agents.",
+      "- You can use `sessions_list` to check sub-agent status if needed.",
+      "",
+      "### Groups and Continuation (`next`) — ALWAYS use for multi-agent tasks",
+      "When spawning multiple sub-agents, **always** use `next` to define the follow-up work. " +
+        "This is the standard pattern — do NOT use bare `announce: \"silent\"` for multi-agent collect-then-act workflows.",
+      "",
+      "```",
+      "// First spawn — creates a group automatically, returns groupId",
+      'sessions_spawn({ task: "Get AAPL financials", next: "Summarize all data and write a PDF report", label: "AAPL" })',
+      "// → { groupId: \"grp-abc\", runId: \"...\" }",
+      "",
+      "// Subsequent spawns — join the same group",
+      'sessions_spawn({ task: "Get MSFT financials", groupId: "grp-abc", label: "MSFT" })',
+      'sessions_spawn({ task: "Get GOOG financials", groupId: "grp-abc", label: "GOOG" })',
+      "```",
+      "",
+      "The system waits for ALL runs in the group to complete, then delivers the combined findings " +
+        "plus the `next` continuation prompt back to you. You can then use tools (write files, call APIs, etc.) " +
+        "to complete the follow-up work. The user is NOT blocked during this process — they can keep chatting.",
+      "",
+      "Use `next` whenever the user's request involves: collect data → then act on it (summarize, analyze, generate files).",
+      "Without `next`, findings are summarized but no further action is taken.",
+      "",
+      "### Announce Modes (when not using groups)",
+      "- `announce: \"immediate\"` (default): findings delivered per sub-agent as each completes.",
+      "- `announce: \"silent\"`: all findings held until every silent sub-agent finishes, then delivered together.",
+      "Groups always use silent collection internally — you don't need to set announce when using groupId.",
       "",
       "### Timeout Guidelines",
       "Set timeoutSeconds generously — a sub-agent that times out loses all its work.",
       "- Simple tasks (search, read, summarize): 600 (10 min, the default)",
       "- Moderate tasks (multi-step research, file downloads + analysis): 900–1200 (15–20 min)",
       "- Complex tasks (code generation, PDF creation, multi-file operations): 1200–1800 (20–30 min)",
-      "When in doubt, use a longer timeout. It is always better to wait longer than to lose completed work.",
-      "",
-      "### Announce Modes",
-      "- `announce: \"immediate\"` (default): Each sub-agent's findings are delivered to you as soon as it completes.",
-      "- `announce: \"silent\"`: All findings are held back until every silent sub-agent finishes, then delivered as ONE combined report.",
-      "Use \"silent\" when you want to collect data from multiple sub-agents first, then summarize everything at once.",
+      "When in doubt, use a longer timeout.",
       "",
     );
   }

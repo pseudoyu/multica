@@ -11,6 +11,26 @@ export type SubagentRunOutcome = {
   error?: string | undefined;
 };
 
+/**
+ * A logical group of subagent runs that are tracked together.
+ * Groups enable "collect all, then act" workflows:
+ * all runs in a group must complete before the combined results
+ * (plus an optional `next` continuation) are announced to the parent.
+ */
+export type SubagentGroup = {
+  /** Unique group identifier (UUIDv7) */
+  groupId: string;
+  /** Session ID of the parent (requester) agent */
+  requesterSessionId: string;
+  /** Optional human-readable label for the group */
+  label?: string | undefined;
+  /** Continuation prompt executed after all runs in the group complete.
+   *  Injected into the announcement so the parent agent acts on the combined findings. */
+  next?: string | undefined;
+  /** Timestamp when the group was created */
+  createdAt: number;
+};
+
 /** Persistent record tracking a single subagent run */
 export type SubagentRunRecord = {
   /** Unique run identifier (UUIDv7) */
@@ -48,6 +68,9 @@ export type SubagentRunRecord = {
   /** Announcement mode: "immediate" (default) announces per-completion,
    *  "silent" defers until all silent runs from the same requester complete. */
   announce?: "immediate" | "silent" | undefined;
+  /** Group ID this run belongs to (if any). Runs in a group are announced
+   *  together when all complete, regardless of the `announce` field. */
+  groupId?: string | undefined;
 };
 
 /** Parameters for registering a new subagent run */
@@ -63,6 +86,12 @@ export type RegisterSubagentRunParams = {
   start?: (() => void) | undefined;
   /** Announcement mode: "immediate" (default) or "silent" (defer until all silent runs complete). */
   announce?: "immediate" | "silent" | undefined;
+  /** Group ID to join. Runs in a group are announced together when all complete. */
+  groupId?: string | undefined;
+  /** Continuation prompt for the group. Only used on group creation (first spawn).
+   *  After all runs in the group complete, this prompt is included in the announcement
+   *  so the parent agent can act on the combined findings (e.g. summarize, write PDF). */
+  next?: string | undefined;
 };
 
 /** Parameters for the announce flow */

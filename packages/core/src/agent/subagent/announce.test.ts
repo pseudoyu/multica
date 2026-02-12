@@ -188,7 +188,7 @@ describe("formatCoalescedAnnouncementMessage", () => {
 
     const msg = formatCoalescedAnnouncementMessage(records);
 
-    expect(msg).toContain("All 2 background tasks have completed");
+    expect(msg).toContain("All 2 background task(s) have completed");
     expect(msg).toContain('Task 1: "Task A"');
     expect(msg).toContain("Found issue A");
     expect(msg).toContain('Task 2: "Task B"');
@@ -250,5 +250,45 @@ describe("formatCoalescedAnnouncementMessage", () => {
     expect(msg).toContain("[2] 上海天气:");
     expect(msg).toContain("上海：多云，9°C");
     expect(msg).toContain("MUST include findings from every task item above");
+  });
+
+  it("includes continuation prompt when next is provided", () => {
+    const records = [
+      makeRecord({ runId: "run-1", label: "AAPL data", findings: "AAPL revenue: $100B" }),
+      makeRecord({ runId: "run-2", label: "MSFT data", findings: "MSFT revenue: $200B" }),
+    ];
+
+    const msg = formatCoalescedAnnouncementMessage(records, "Summarize all data and write a PDF investment report");
+
+    expect(msg).toContain("CONTINUATION TASK");
+    expect(msg).toContain("Summarize all data and write a PDF investment report");
+    expect(msg).toContain("AAPL revenue: $100B");
+    expect(msg).toContain("MSFT revenue: $200B");
+    // Should NOT contain the default summarize instruction
+    expect(msg).not.toContain("Summarize these results naturally for the user");
+  });
+
+  it("uses continuation prompt even for single record when next is provided", () => {
+    const records = [
+      makeRecord({ runId: "run-1", label: "Data collection", findings: "All data collected" }),
+    ];
+
+    const msg = formatCoalescedAnnouncementMessage(records, "Generate the final report");
+
+    expect(msg).toContain("CONTINUATION TASK");
+    expect(msg).toContain("Generate the final report");
+    expect(msg).toContain("All data collected");
+  });
+
+  it("uses default summarize instruction when next is not provided", () => {
+    const records = [
+      makeRecord({ runId: "run-1" }),
+      makeRecord({ runId: "run-2" }),
+    ];
+
+    const msg = formatCoalescedAnnouncementMessage(records);
+
+    expect(msg).not.toContain("CONTINUATION TASK");
+    expect(msg).toContain("Summarize these results naturally for the user");
   });
 });
