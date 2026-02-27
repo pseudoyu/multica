@@ -58,8 +58,8 @@ Use `data` tool with `domain="finance"` for all calls:
 
 4. **Financial Metrics** (current):
    ```
-   action: "get_financial_metrics_snapshot"
-   params: { ticker: "[TICKER]" }
+   action: "get_financial_metrics"
+   params: { ticker: "[TICKER]", period: "quarterly", limit: 1 }
    ```
    Extract: `market_cap`, `enterprise_value`, `return_on_invested_capital`, `debt_to_equity`, `free_cash_flow_per_share`
 
@@ -70,18 +70,17 @@ Use `data` tool with `domain="finance"` for all calls:
    ```
    Extract: Forward EPS estimates for growth validation
 
-6. **Current Price**:
-   ```
-   action: "get_price_snapshot"
-   params: { ticker: "[TICKER]" }
-   ```
-
-7. **Company Facts**:
+6. **Company Facts**:
    ```
    action: "get_company_facts"
    params: { ticker: "[TICKER]" }
    ```
    Extract: `sector` — use to determine WACC range from [sector-wacc.md](references/sector-wacc.md)
+
+7. **Current Price** (use web search):
+   ```
+   web_search("[TICKER] stock price today")
+   ```
 
 8. **Recent Event Context**:
 - Pull company-specific headlines with:

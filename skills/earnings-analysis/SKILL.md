@@ -64,8 +64,8 @@ Use `data` tool with `domain="finance"` for all structured data calls.
 
 3. **Current financial metrics**:
    ```
-   action: "get_financial_metrics_snapshot"
-   params: { ticker: "[TICKER]" }
+   action: "get_financial_metrics"
+   params: { ticker: "[TICKER]", period: "quarterly", limit: 1 }
    ```
 
 4. **Company facts**:
@@ -75,13 +75,7 @@ Use `data` tool with `domain="finance"` for all structured data calls.
    ```
    Extract: `sector`, `industry` — needed for benchmark comparisons in later steps.
 
-5. **Current stock price**:
-   ```
-   action: "get_price_snapshot"
-   params: { ticker: "[TICKER]" }
-   ```
-
-6. **Recent news**:
+5. **Recent news**:
    ```
    action: "get_news"
    params: { ticker: "[TICKER]", limit: 10 }
@@ -349,8 +343,8 @@ Pull and analyze the most recent annual or quarterly filing:
 
 2. **Pull peer data** (for each peer):
    ```
-   action: "get_financial_metrics_snapshot"
-   params: { ticker: "[PEER_TICKER]" }
+   action: "get_financial_metrics"
+   params: { ticker: "[PEER_TICKER]", period: "quarterly", limit: 1 }
    ```
    ```
    action: "get_income_statements"

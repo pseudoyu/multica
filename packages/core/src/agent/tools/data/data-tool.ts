@@ -21,8 +21,6 @@ const DataToolSchema = Type.Object({
       "Action to perform within the domain.\n\n" +
       "FINANCE DOMAIN ACTIONS:\n" +
       "Prices:\n" +
-      "  get_price_snapshot — params: { ticker }\n" +
-      "  get_prices — params: { ticker, start_date, end_date, interval?, interval_multiplier? }\n" +
       "  get_crypto_price_snapshot — params: { ticker } (e.g. BTC-USD)\n" +
       "  get_crypto_prices — params: { ticker, start_date, end_date, interval?, interval_multiplier? }\n" +
       "  get_available_crypto_tickers — params: {}\n" +
@@ -32,7 +30,6 @@ const DataToolSchema = Type.Object({
       "  get_cash_flow_statements — same params\n" +
       "  get_all_financial_statements — same params (returns all three)\n" +
       "Metrics:\n" +
-      "  get_financial_metrics_snapshot — params: { ticker }\n" +
       "  get_financial_metrics — params: { ticker, period?, limit?, report_period*? }\n" +
       "  get_analyst_estimates — params: { ticker, period? }\n" +
       "Company:\n" +

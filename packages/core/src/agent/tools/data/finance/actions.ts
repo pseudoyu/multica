@@ -66,30 +66,6 @@ type ActionHandler = (params: Params, signal?: AbortSignal) => Promise<FinanceAc
 const handlers: Record<FinanceAction, ActionHandler> = {
   // ── Prices ──────────────────────────────────────────────────────────────
 
-  get_price_snapshot: async (params, signal) => {
-    const ticker = requireParam(params, "ticker");
-    const { data, url } = await financeFetch("/prices/snapshot", { ticker }, signal);
-    return { data: (data as Record<string, unknown>).snapshot ?? data, sourceUrl: url };
-  },
-
-  get_prices: async (params, signal) => {
-    const ticker = requireParam(params, "ticker");
-    const start_date = requireParam(params, "start_date");
-    const end_date = requireParam(params, "end_date");
-    const { data, url } = await financeFetch(
-      "/prices",
-      {
-        ticker,
-        start_date,
-        end_date,
-        interval: optionalString(params, "interval") ?? "day",
-        interval_multiplier: optionalNumber(params, "interval_multiplier"),
-      },
-      signal,
-    );
-    return { data: (data as Record<string, unknown>).prices ?? data, sourceUrl: url };
-  },
-
   get_crypto_price_snapshot: async (params, signal) => {
     const ticker = requireParam(params, "ticker");
     const { data, url } = await financeFetch("/crypto/prices/snapshot", { ticker }, signal);
@@ -146,12 +122,6 @@ const handlers: Record<FinanceAction, ActionHandler> = {
   },
 
   // ── Metrics & estimates ─────────────────────────────────────────────────
-
-  get_financial_metrics_snapshot: async (params, signal) => {
-    const ticker = requireParam(params, "ticker");
-    const { data, url } = await financeFetch("/financial-metrics/snapshot", { ticker }, signal);
-    return { data: (data as Record<string, unknown>).snapshot ?? data, sourceUrl: url };
-  },
 
   get_financial_metrics: async (params, signal) => {
     const ticker = requireParam(params, "ticker");

@@ -29,8 +29,8 @@ describe("inferRunLogToolIsError", () => {
     expect(
       inferRunLogToolIsError(
         false,
-        "{\"domain\":\"finance\",\"action\":\"get_price_snapshot\"}",
-        { domain: "finance", action: "get_price_snapshot" },
+        "{\"domain\":\"finance\",\"action\":\"get_financial_metrics\"}",
+        { domain: "finance", action: "get_financial_metrics" },
       ),
     ).toBe(false);
   });

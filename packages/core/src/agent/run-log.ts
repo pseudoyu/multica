@@ -27,7 +27,7 @@
  * - `tool_end`    — Tool execution completes.
  *     Fields: tool (name), duration_ms, is_error, result_chars, result_summary?, error_type?
  *     result_chars: total character count of result content (survives session compaction)
- *     result_summary: short tool-specific summary (e.g. "10 results", "12.5KB", "finance/get_price_snapshot")
+ *     result_summary: short tool-specific summary (e.g. "10 results", "12.5KB", "finance/get_financial_metrics")
  *     error_type: error category when tool returned an error (e.g. "fetch_failed", "ssrf_blocked")
  *
  * ### Context Management — Preflight (before LLM call)

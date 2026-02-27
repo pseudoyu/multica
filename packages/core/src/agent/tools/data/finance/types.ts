@@ -5,8 +5,6 @@
 /** All supported finance actions */
 export const FINANCE_ACTIONS = [
   // Price data
-  "get_price_snapshot",
-  "get_prices",
   "get_crypto_price_snapshot",
   "get_crypto_prices",
   "get_available_crypto_tickers",
@@ -16,7 +14,6 @@ export const FINANCE_ACTIONS = [
   "get_cash_flow_statements",
   "get_all_financial_statements",
   // Metrics & estimates
-  "get_financial_metrics_snapshot",
   "get_financial_metrics",
   "get_analyst_estimates",
   // Company info
