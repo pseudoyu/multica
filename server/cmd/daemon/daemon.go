@@ -31,6 +31,7 @@ type config struct {
 	ServerBaseURL     string
 	ConfigPath        string
 	WorkspaceID       string
+	WorkspaceFromDisk bool
 	DaemonID          string
 	DeviceName        string
 	RuntimeName       string
@@ -51,6 +52,17 @@ type daemon struct {
 type daemonClient struct {
 	baseURL string
 	client  *http.Client
+}
+
+type requestError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *requestError) Error() string {
+	return fmt.Sprintf("%s %s returned %d: %s", e.Method, e.Path, e.StatusCode, e.Body)
 }
 
 type daemonRuntime struct {
@@ -140,8 +152,10 @@ func loadConfig() (config, error) {
 		return config{}, err
 	}
 	workspaceID := strings.TrimSpace(os.Getenv("MULTICA_WORKSPACE_ID"))
+	workspaceFromDisk := false
 	if workspaceID == "" {
 		workspaceID = persisted.WorkspaceID
+		workspaceFromDisk = workspaceID != ""
 	}
 
 	codexPath := envOrDefault("MULTICA_CODEX_PATH", defaultCodexPath)
@@ -183,6 +197,7 @@ func loadConfig() (config, error) {
 		ServerBaseURL:     serverBaseURL,
 		ConfigPath:        configPath,
 		WorkspaceID:       workspaceID,
+		WorkspaceFromDisk: workspaceFromDisk,
 		DaemonID:          envOrDefault("MULTICA_DAEMON_ID", host),
 		DeviceName:        envOrDefault("MULTICA_DAEMON_DEVICE_NAME", host),
 		RuntimeName:       envOrDefault("MULTICA_CODEX_RUNTIME_NAME", defaultRuntimeName),
@@ -216,7 +231,7 @@ func (d *daemon) run(ctx context.Context) error {
 		d.logger.Printf("pairing completed for workspace=%s", workspaceID)
 	}
 
-	runtime, err := d.registerRuntime(ctx)
+	runtime, err := d.registerRuntimeWithRecovery(ctx)
 	if err != nil {
 		return err
 	}
@@ -256,6 +271,37 @@ func (d *daemon) registerRuntime(ctx context.Context) (daemonRuntime, error) {
 		return daemonRuntime{}, fmt.Errorf("register runtime: empty response")
 	}
 	return resp.Runtimes[0], nil
+}
+
+func (d *daemon) registerRuntimeWithRecovery(ctx context.Context) (daemonRuntime, error) {
+	runtime, err := d.registerRuntime(ctx)
+	if err == nil {
+		return runtime, nil
+	}
+	if !d.cfg.WorkspaceFromDisk || !isWorkspaceNotFoundError(err) {
+		return daemonRuntime{}, err
+	}
+
+	d.logger.Printf(
+		"persisted workspace=%s is no longer valid; clearing %s and starting a new pairing flow",
+		d.cfg.WorkspaceID,
+		d.cfg.ConfigPath,
+	)
+	if err := clearPersistedDaemonConfig(d.cfg.ConfigPath); err != nil {
+		return daemonRuntime{}, err
+	}
+
+	d.cfg.WorkspaceID = ""
+	d.cfg.WorkspaceFromDisk = false
+
+	workspaceID, err := d.ensurePaired(ctx)
+	if err != nil {
+		return daemonRuntime{}, fmt.Errorf("repair stale workspace binding: %w", err)
+	}
+	d.cfg.WorkspaceID = workspaceID
+	d.logger.Printf("pairing completed for workspace=%s", workspaceID)
+
+	return d.registerRuntime(ctx)
 }
 
 func (d *daemon) ensurePaired(ctx context.Context) (string, error) {
@@ -641,6 +687,24 @@ func savePersistedDaemonConfig(path string, cfg daemonPersistedConfig) error {
 	return nil
 }
 
+func clearPersistedDaemonConfig(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove daemon config: %w", err)
+	}
+	return nil
+}
+
+func isWorkspaceNotFoundError(err error) bool {
+	var reqErr *requestError
+	if !errors.As(err, &reqErr) {
+		return false
+	}
+	if reqErr.StatusCode != http.StatusNotFound {
+		return false
+	}
+	return strings.Contains(strings.ToLower(reqErr.Body), "workspace not found")
+}
+
 func normalizeServerBaseURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -778,7 +842,12 @@ func (c *daemonClient) postJSON(ctx context.Context, path string, reqBody any, r
 
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("%s %s returned %d: %s", http.MethodPost, path, resp.StatusCode, strings.TrimSpace(string(data)))
+		return &requestError{
+			Method:     http.MethodPost,
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Body:       strings.TrimSpace(string(data)),
+		}
 	}
 	if respBody == nil {
 		io.Copy(io.Discard, resp.Body)
@@ -801,7 +870,12 @@ func (c *daemonClient) getJSON(ctx context.Context, path string, respBody any) e
 
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("%s %s returned %d: %s", http.MethodGet, path, resp.StatusCode, strings.TrimSpace(string(data)))
+		return &requestError{
+			Method:     http.MethodGet,
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Body:       strings.TrimSpace(string(data)),
+		}
 	}
 	if respBody == nil {
 		io.Copy(io.Discard, resp.Body)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,7 @@ import (
 )
 
 var testHandler *Handler
+var testPool *pgxpool.Pool
 var testUserID string
 var testWorkspaceID string
 
@@ -43,6 +45,7 @@ func TestMain(m *testing.M) {
 	hub := realtime.NewHub()
 	go hub.Run()
 	testHandler = New(queries, pool, hub)
+	testPool = pool
 
 	testUserID, testWorkspaceID, err = setupHandlerTestFixture(ctx, pool)
 	if err != nil {
@@ -369,5 +372,75 @@ func TestAuthLogin(t *testing.T) {
 	}
 	if resp.User.Email != "test-handler@multica.ai" {
 		t.Fatalf("Login: expected email 'test-handler@multica.ai', got '%s'", resp.User.Email)
+	}
+}
+
+func TestAuthLoginCreatesWorkspaceForNewUser(t *testing.T) {
+	const email = "new-handler-login@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		user, err := testHandler.Queries.GetUserByEmail(ctx, email)
+		if err == nil {
+			workspaces, listErr := testHandler.Queries.ListWorkspaces(ctx, user.ID)
+			if listErr == nil {
+				for _, workspace := range workspaces {
+					_ = testHandler.Queries.DeleteWorkspace(ctx, workspace.ID)
+				}
+			}
+		}
+		_, _ = testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	_, _ = testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+
+	w := httptest.NewRecorder()
+	body := map[string]string{"email": email, "name": "Workspace Owner"}
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(body)
+	req := httptest.NewRequest("POST", "/auth/login", &buf)
+	req.Header.Set("Content-Type", "application/json")
+
+	testHandler.Login(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Login: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	user, err := testHandler.Queries.GetUserByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+
+	workspaces, err := testHandler.Queries.ListWorkspaces(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListWorkspaces: %v", err)
+	}
+	if len(workspaces) != 1 {
+		t.Fatalf("ListWorkspaces: expected 1 workspace, got %d", len(workspaces))
+	}
+	if !strings.Contains(workspaces[0].Name, "Workspace") {
+		t.Fatalf("expected auto-created workspace name, got %q", workspaces[0].Name)
+	}
+	if workspaces[0].Slug == "" {
+		t.Fatal("expected auto-created workspace slug")
+	}
+}
+
+func TestDaemonRegisterMissingWorkspaceReturns404(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/daemon/register", bytes.NewBufferString(`{
+		"workspace_id":"00000000-0000-0000-0000-000000000001",
+		"daemon_id":"local-daemon",
+		"device_name":"test-machine",
+		"runtimes":[{"name":"Local Codex","type":"codex","version":"1.0.0","status":"online"}]
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	testHandler.DaemonRegister(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("DaemonRegister: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "workspace not found") {
+		t.Fatalf("DaemonRegister: expected workspace not found error, got %s", w.Body.String())
 	}
 }

@@ -9,7 +9,6 @@ import { Label } from "@multica/ui/components/ui/label";
 import {
   Select,
   SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
 } from "@multica/ui/components/ui/select";
@@ -39,6 +38,10 @@ function LocalDaemonPairPageContent() {
     const next = `/pair/local?token=${encodeURIComponent(token)}`;
     return `/login?next=${encodeURIComponent(next)}`;
   }, [token]);
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((item) => item.id === selectedWorkspaceId) ?? null,
+    [selectedWorkspaceId, workspaces],
+  );
 
   useEffect(() => {
     if (!token) {
@@ -135,7 +138,9 @@ function LocalDaemonPairPageContent() {
                   <Label className="mb-2">Workspace</Label>
                   <Select value={selectedWorkspaceId} onValueChange={(v) => setSelectedWorkspaceId(v ?? "")}>
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <span className="flex flex-1 text-left">
+                        {selectedWorkspace?.name ?? "Select workspace"}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {workspaces.map((item) => (

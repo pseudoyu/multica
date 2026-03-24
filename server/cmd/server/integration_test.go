@@ -22,6 +22,7 @@ import (
 
 var (
 	testServer      *httptest.Server
+	testPool        *pgxpool.Pool
 	testToken       string
 	testUserID      string
 	testWorkspaceID string
@@ -48,6 +49,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	testPool = pool
 	testUserID, testWorkspaceID, err = setupIntegrationTestFixture(ctx, pool)
 	if err != nil {
 		fmt.Printf("Failed to set up integration test fixture: %v\n", err)
@@ -265,6 +267,86 @@ func TestLoginAndGetMe(t *testing.T) {
 	readJSON(t, meResp, &me)
 	if me.Email != "integration-test@multica.ai" {
 		t.Fatalf("expected email 'integration-test@multica.ai', got '%s'", me.Email)
+	}
+}
+
+func TestLoginCreatesWorkspaceForNewUser(t *testing.T) {
+	const email = "new-integration-login@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		var userID string
+		err := testPool.QueryRow(ctx, `SELECT id FROM "user" WHERE email = $1`, email).Scan(&userID)
+		if err == nil {
+			rows, queryErr := testPool.Query(ctx, `
+				SELECT w.id
+				FROM workspace w
+				JOIN member m ON m.workspace_id = w.id
+				WHERE m.user_id = $1
+			`, userID)
+			if queryErr == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var workspaceID string
+					if scanErr := rows.Scan(&workspaceID); scanErr == nil {
+						_, _ = testPool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, workspaceID)
+					}
+				}
+			}
+		}
+		_, _ = testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	_, _ = testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+
+	body, _ := json.Marshal(map[string]string{
+		"email": email,
+		"name":  "Jiayuan",
+	})
+	resp, err := http.Post(testServer.URL+"/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var loginResp struct {
+		Token string `json:"token"`
+	}
+	readJSON(t, resp, &loginResp)
+	if loginResp.Token == "" {
+		t.Fatal("expected non-empty token")
+	}
+
+	req, _ := http.NewRequest("GET", testServer.URL+"/api/workspaces", nil)
+	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
+	workspacesResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("listWorkspaces failed: %v", err)
+	}
+	defer workspacesResp.Body.Close()
+
+	if workspacesResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", workspacesResp.StatusCode)
+	}
+
+	var workspaces []struct {
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	}
+	readJSON(t, workspacesResp, &workspaces)
+
+	if len(workspaces) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(workspaces))
+	}
+	if workspaces[0].Name != "Jiayuan's Workspace" {
+		t.Fatalf("expected default workspace name %q, got %q", "Jiayuan's Workspace", workspaces[0].Name)
+	}
+	if workspaces[0].Slug == "" {
+		t.Fatal("expected non-empty workspace slug")
 	}
 }
 
