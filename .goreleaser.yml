@@ -1,0 +1,55 @@
+version: 2
+
+project_name: multica-cli
+
+before:
+  hooks:
+    - cd server && go mod tidy
+
+builds:
+  - id: multica-cli
+    main: ./cmd/multica
+    dir: server
+    binary: multica-cli
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+homebrew_casks:
+  - name: multica-cli
+    binaries:
+      - multica-cli
+    repository:
+      owner: multica-ai
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/multica-ai/super-multica"
+    description: "Multica CLI — local agent runtime and management tool for the Multica platform"
