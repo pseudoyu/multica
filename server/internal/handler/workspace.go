@@ -111,10 +111,7 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if _, ok := h.requireWorkspaceMember(w, r, id, "workspace not found"); !ok {
-		return
-	}
+	id := workspaceIDFromURL(r, "id")
 
 	ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(id))
 	if err != nil {
@@ -209,10 +206,7 @@ type UpdateWorkspaceRequest struct {
 }
 
 func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if _, ok := h.requireWorkspaceRole(w, r, id, "workspace not found", "owner", "admin"); !ok {
-		return
-	}
+	id := workspaceIDFromURL(r, "id")
 
 	var req UpdateWorkspaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -298,10 +292,7 @@ type MemberWithUserResponse struct {
 }
 
 func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
-		return
-	}
+	workspaceID := workspaceIDFromURL(r, "id")
 
 	members, err := h.Queries.ListMembersWithUser(r.Context(), parseUUID(workspaceID))
 	if err != nil {
@@ -359,8 +350,8 @@ func normalizeMemberRole(role string) (string, bool) {
 }
 
 func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	workspaceID := workspaceIDFromURL(r, "id")
+	requester, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
 		return
 	}
@@ -436,8 +427,8 @@ type UpdateMemberRequest struct {
 }
 
 func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	workspaceID := workspaceIDFromURL(r, "id")
+	requester, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
 		return
 	}
@@ -506,8 +497,8 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	requester, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	workspaceID := workspaceIDFromURL(r, "id")
+	requester, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
 		return
 	}
@@ -554,8 +545,8 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	workspaceID := workspaceIDFromURL(r, "id")
+	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
 		return
 	}
@@ -590,10 +581,7 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	workspaceID := chi.URLParam(r, "id")
-	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner"); !ok {
-		return
-	}
+	workspaceID := workspaceIDFromURL(r, "id")
 
 	if err := h.Queries.DeleteWorkspace(r.Context(), parseUUID(workspaceID)); err != nil {
 		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)

@@ -194,9 +194,6 @@ func (h *Handler) GetRuntimeTaskActivity(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) ListAgentRuntimes(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
-		return
-	}
 
 	runtimes, err := h.Queries.ListAgentRuntimes(r.Context(), parseUUID(workspaceID))
 	if err != nil {

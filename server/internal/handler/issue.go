@@ -70,9 +70,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
-		return
-	}
 
 	limit := 100
 	offset := 0
@@ -160,9 +157,6 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
-		return
-	}
 
 	// Get creator from context (set by auth middleware)
 	creatorID, ok := requireUserID(w, r)

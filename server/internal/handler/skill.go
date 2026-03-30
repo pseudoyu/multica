@@ -142,9 +142,6 @@ func (h *Handler) loadSkillForUser(w http.ResponseWriter, r *http.Request, id st
 
 func (h *Handler) ListSkills(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
-		return
-	}
 
 	skills, err := h.Queries.ListSkillsByWorkspace(r.Context(), parseUUID(workspaceID))
 	if err != nil {
@@ -186,9 +183,6 @@ func (h *Handler) GetSkill(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateSkill(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin"); !ok {
-		return
-	}
 
 	creatorID, ok := requireUserID(w, r)
 	if !ok {
@@ -768,9 +762,6 @@ func fetchRawFile(httpClient *http.Client, fileURL string) ([]byte, error) {
 
 func (h *Handler) ImportSkill(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin"); !ok {
-		return
-	}
 
 	creatorID, ok := requireUserID(w, r)
 	if !ok {

@@ -133,10 +133,12 @@ func (h *Handler) ensureUserWorkspace(ctx context.Context, user db.User) error {
 		return nil
 	}
 
+	wsName := defaultWorkspaceName(user)
 	workspace, err := qtx.CreateWorkspace(ctx, db.CreateWorkspaceParams{
-		Name:        defaultWorkspaceName(user),
+		Name:        wsName,
 		Slug:        defaultWorkspaceSlug(user),
 		Description: pgtype.Text{},
+		IssuePrefix: generateIssuePrefix(wsName),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

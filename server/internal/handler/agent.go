@@ -139,7 +139,7 @@ func taskToResponse(t db.AgentTaskQueue) AgentTaskResponse {
 
 func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
 		return
 	}
@@ -224,9 +224,6 @@ type CreateAgentRequest struct {
 
 func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	workspaceID := resolveWorkspaceID(r)
-	if _, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin"); !ok {
-		return
-	}
 
 	var req CreateAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

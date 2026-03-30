@@ -111,10 +111,10 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 
 		// Issues
 		r.Route("/api/issues", func(r chi.Router) {
-			r.Get("/", h.ListIssues)
-			r.Post("/", h.CreateIssue)
-			r.Post("/batch-update", h.BatchUpdateIssues)
-			r.Post("/batch-delete", h.BatchDeleteIssues)
+			r.With(middleware.RequireWorkspaceMember(queries)).Get("/", h.ListIssues)
+			r.With(middleware.RequireWorkspaceMember(queries)).Post("/", h.CreateIssue)
+			r.With(middleware.RequireWorkspaceMember(queries)).Post("/batch-update", h.BatchUpdateIssues)
+			r.With(middleware.RequireWorkspaceMember(queries)).Post("/batch-delete", h.BatchDeleteIssues)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.GetIssue)
 				r.Put("/", h.UpdateIssue)
@@ -136,8 +136,8 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 
 		// Agents
 		r.Route("/api/agents", func(r chi.Router) {
-			r.Get("/", h.ListAgents)
-			r.Post("/", h.CreateAgent)
+			r.With(middleware.RequireWorkspaceMember(queries)).Get("/", h.ListAgents)
+			r.With(middleware.RequireWorkspaceRole(queries, "owner", "admin")).Post("/", h.CreateAgent)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.GetAgent)
 				r.Put("/", h.UpdateAgent)
@@ -150,9 +150,9 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 
 		// Skills
 		r.Route("/api/skills", func(r chi.Router) {
-			r.Get("/", h.ListSkills)
-			r.Post("/", h.CreateSkill)
-			r.Post("/import", h.ImportSkill)
+			r.With(middleware.RequireWorkspaceMember(queries)).Get("/", h.ListSkills)
+			r.With(middleware.RequireWorkspaceRole(queries, "owner", "admin")).Post("/", h.CreateSkill)
+			r.With(middleware.RequireWorkspaceRole(queries, "owner", "admin")).Post("/import", h.ImportSkill)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.GetSkill)
 				r.Put("/", h.UpdateSkill)
@@ -164,7 +164,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		})
 
 		r.Route("/api/runtimes", func(r chi.Router) {
-			r.Get("/", h.ListAgentRuntimes)
+			r.With(middleware.RequireWorkspaceMember(queries)).Get("/", h.ListAgentRuntimes)
 			r.Get("/{runtimeId}/usage", h.GetRuntimeUsage)
 			r.Get("/{runtimeId}/activity", h.GetRuntimeTaskActivity)
 			r.Post("/{runtimeId}/ping", h.InitiatePing)
@@ -197,17 +197,26 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 			r.Get("/", h.ListWorkspaces)
 			r.Post("/", h.CreateWorkspace)
 			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", h.GetWorkspace)
-				r.Put("/", h.UpdateWorkspace)
-				r.Patch("/", h.UpdateWorkspace)
-				r.Delete("/", h.DeleteWorkspace)
-				r.Get("/members", h.ListMembersWithUser)
-				r.Post("/members", h.CreateMember)
-				r.Post("/leave", h.LeaveWorkspace)
-				r.Route("/members/{memberId}", func(r chi.Router) {
-					r.Patch("/", h.UpdateMember)
-					r.Delete("/", h.DeleteMember)
+				// Member-level access
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
+					r.Get("/", h.GetWorkspace)
+					r.Get("/members", h.ListMembersWithUser)
+					r.Post("/leave", h.LeaveWorkspace)
 				})
+				// Admin-level access
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
+					r.Put("/", h.UpdateWorkspace)
+					r.Patch("/", h.UpdateWorkspace)
+					r.Post("/members", h.CreateMember)
+					r.Route("/members/{memberId}", func(r chi.Router) {
+						r.Patch("/", h.UpdateMember)
+						r.Delete("/", h.DeleteMember)
+					})
+				})
+				// Owner-only access
+				r.With(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner")).Delete("/", h.DeleteWorkspace)
 			})
 		})
 	})
