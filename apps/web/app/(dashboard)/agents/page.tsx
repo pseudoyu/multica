@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Globe,
   Lock,
+  Settings,
 } from "lucide-react";
 import type {
   Agent,
@@ -1152,10 +1153,142 @@ function TasksTab({ agent }: { agent: Agent }) {
 }
 
 // ---------------------------------------------------------------------------
+// Settings Tab
+// ---------------------------------------------------------------------------
+
+function SettingsTab({
+  agent,
+  runtimes,
+  onSave,
+}: {
+  agent: Agent;
+  runtimes: RuntimeDevice[];
+  onSave: (updates: Partial<Agent>) => Promise<void>;
+}) {
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description ?? "");
+  const [visibility, setVisibility] = useState<AgentVisibility>(agent.visibility);
+  const [maxTasks, setMaxTasks] = useState(agent.max_concurrent_tasks);
+  const [saving, setSaving] = useState(false);
+
+  const dirty =
+    name !== agent.name ||
+    description !== (agent.description ?? "") ||
+    visibility !== agent.visibility ||
+    maxTasks !== agent.max_concurrent_tasks;
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({ name: name.trim(), description, visibility, max_concurrent_tasks: maxTasks });
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runtimeDevice = runtimes.find((r) => r.id === agent.runtime_id);
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div>
+        <Label className="text-xs text-muted-foreground">Name</Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="mt-1"
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Description</Label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What does this agent do?"
+          className="mt-1"
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Visibility</Label>
+        <div className="mt-1.5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setVisibility("workspace")}
+            className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+              visibility === "workspace"
+                ? "border-primary bg-primary/5"
+                : "border-border hover:bg-muted"
+            }`}
+          >
+            <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="text-left">
+              <div className="font-medium">Workspace</div>
+              <div className="text-xs text-muted-foreground">All members can assign</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibility("private")}
+            className={`flex flex-1 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+              visibility === "private"
+                ? "border-primary bg-primary/5"
+                : "border-border hover:bg-muted"
+            }`}
+          >
+            <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="text-left">
+              <div className="font-medium">Private</div>
+              <div className="text-xs text-muted-foreground">Only you can assign</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Max Concurrent Tasks</Label>
+        <Input
+          type="number"
+          min={1}
+          max={50}
+          value={maxTasks}
+          onChange={(e) => setMaxTasks(Number(e.target.value))}
+          className="mt-1 w-24"
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Runtime</Label>
+        <div className="mt-1 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm text-muted-foreground">
+          {agent.runtime_mode === "cloud" ? (
+            <Cloud className="h-4 w-4" />
+          ) : (
+            <Monitor className="h-4 w-4" />
+          )}
+          {runtimeDevice?.name ?? (agent.runtime_mode === "cloud" ? "Cloud" : "Local")}
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={!dirty || saving} size="sm">
+        {saving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+        Save Changes
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Agent Detail
 // ---------------------------------------------------------------------------
 
-type DetailTab = "instructions" | "skills" | "tools" | "triggers" | "tasks";
+type DetailTab = "instructions" | "skills" | "tools" | "triggers" | "tasks" | "settings";
 
 const detailTabs: { id: DetailTab; label: string; icon: typeof FileText }[] = [
   { id: "instructions", label: "Instructions", icon: FileText },
@@ -1163,6 +1296,7 @@ const detailTabs: { id: DetailTab; label: string; icon: typeof FileText }[] = [
   { id: "tools", label: "Tools", icon: Wrench },
   { id: "triggers", label: "Triggers", icon: Timer },
   { id: "tasks", label: "Tasks", icon: ListTodo },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 function AgentDetail({
@@ -1267,6 +1401,13 @@ function AgentDetail({
           />
         )}
         {activeTab === "tasks" && <TasksTab agent={agent} />}
+        {activeTab === "settings" && (
+          <SettingsTab
+            agent={agent}
+            runtimes={runtimes}
+            onSave={(updates) => onUpdate(agent.id, updates)}
+          />
+        )}
       </div>
 
       {/* Delete Confirmation */}
