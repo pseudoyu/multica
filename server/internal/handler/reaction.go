@@ -92,6 +92,7 @@ func (h *Handler) AddReaction(w http.ResponseWriter, r *http.Request) {
 		"issue_id":            issueID,
 		"issue_title":         issueTitle,
 		"issue_status":        issueStatus,
+		"comment_id":          uuidToString(comment.ID),
 		"comment_author_type": comment.AuthorType,
 		"comment_author_id":   uuidToString(comment.AuthorID),
 	})

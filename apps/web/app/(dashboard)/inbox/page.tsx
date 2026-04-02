@@ -413,10 +413,11 @@ export default function InboxPage() {
       <div className="flex flex-col min-h-0 h-full">
         {selected?.issue_id ? (
           <IssueDetail
-            key={selected.issue_id}
+            key={selected.id}
             issueId={selected.issue_id}
             defaultSidebarOpen={false}
             layoutId="multica_inbox_issue_detail_layout"
+            highlightCommentId={selected.details?.comment_id ?? undefined}
             onDelete={() => {
               handleArchive(selected.id);
             }}

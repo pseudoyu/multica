@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   Calendar,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Link2,
@@ -160,13 +161,15 @@ interface IssueDetailProps {
   onDelete?: () => void;
   defaultSidebarOpen?: boolean;
   layoutId?: string;
+  /** When set, the issue detail will auto-scroll to this comment and briefly highlight it. */
+  highlightCommentId?: string;
 }
 
 // ---------------------------------------------------------------------------
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout" }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId }: IssueDetailProps) {
   const id = issueId;
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -191,6 +194,9 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   // Single source of truth: read issue directly from global store
   const issue = useIssueStore((s) => s.issues.find((i) => i.id === id)) ?? null;
@@ -228,6 +234,40 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   } = useIssueSubscribers(id, user?.id);
 
   const loading = issueLoading;
+
+  // Scroll to highlighted comment once timeline loads
+  useEffect(() => {
+    if (!highlightCommentId || timeline.length === 0) return;
+    // Find the comment element — could be a top-level comment or a reply
+    const el = document.getElementById(`comment-${highlightCommentId}`);
+    if (el) {
+      // Small delay to ensure layout is settled
+      requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightedId(highlightCommentId);
+        // Clear highlight after animation
+        const timer = setTimeout(() => setHighlightedId(null), 2000);
+        return () => clearTimeout(timer);
+      });
+    }
+  }, [highlightCommentId, timeline.length]);
+
+  // Track scroll position for jump-to-bottom button
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      setShowScrollBottom(scrollHeight - scrollTop - clientHeight > 200);
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
+  }, []);
 
   // Issue field updates — write directly to the global store (single source of truth)
   const handleUpdateField = useCallback(
@@ -541,7 +581,7 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
           </div>
 
         {/* Content — scrollable */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-4xl px-8 py-8">
           <TitleEditor
             key={`title-${id}`}
@@ -733,17 +773,20 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
                   if (group.type === "comment") {
                     const entry = group.entries[0]!;
                     return (
-                      <CommentCard
-                        key={entry.id}
-                        issueId={id}
-                        entry={entry}
-                        allReplies={repliesByParent}
-                        currentUserId={user?.id}
-                        onReply={submitReply}
-                        onEdit={editComment}
-                        onDelete={deleteComment}
-                        onToggleReaction={handleToggleReaction}
-                      />
+                      <div id={`comment-${entry.id}`}>
+                        <CommentCard
+                          key={entry.id}
+                          issueId={id}
+                          entry={entry}
+                          allReplies={repliesByParent}
+                          currentUserId={user?.id}
+                          onReply={submitReply}
+                          onEdit={editComment}
+                          onDelete={deleteComment}
+                          onToggleReaction={handleToggleReaction}
+                          highlightedCommentId={highlightedId}
+                        />
+                      </div>
                     );
                   }
 
@@ -802,6 +845,20 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
             </div>
           </div>
         </div>
+        {/* Jump to bottom button */}
+        {showScrollBottom && (
+          <div className="sticky bottom-4 flex justify-center pointer-events-none">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="pointer-events-auto shadow-md"
+              onClick={scrollToBottom}
+            >
+              <ChevronDown className="mr-1 h-3.5 w-3.5" />
+              Jump to bottom
+            </Button>
+          </div>
+        )}
         </div>
       </div>
       </ResizablePanel>

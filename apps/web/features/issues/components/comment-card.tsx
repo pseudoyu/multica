@@ -40,6 +40,8 @@ interface CommentCardProps {
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => void;
   onToggleReaction: (commentId: string, emoji: string) => void;
+  /** ID of the comment to highlight (flash animation). */
+  highlightedCommentId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +223,7 @@ function CommentCard({
   onEdit,
   onDelete,
   onToggleReaction,
+  highlightedCommentId,
 }: CommentCardProps) {
   const { getActorName } = useActorName();
   const { uploadWithToast } = useFileUpload();
@@ -275,8 +278,10 @@ function CommentCard({
   const contentPreview = (entry.content ?? "").replace(/\n/g, " ").slice(0, 80);
   const reactions = entry.reactions ?? [];
 
+  const isHighlighted = highlightedCommentId === entry.id;
+
   return (
-    <Card className={`!py-0 !gap-0 overflow-hidden${isTemp ? " opacity-60" : ""}`}>
+    <Card className={cn("!py-0 !gap-0 overflow-hidden transition-colors duration-700", isTemp && "opacity-60", isHighlighted && "ring-2 ring-brand/50 bg-brand/5")}>
       <Collapsible open={open} onOpenChange={setOpen}>
         {/* Header — always visible, acts as toggle */}
         <div className="px-4 py-3">
@@ -404,7 +409,7 @@ function CommentCard({
 
           {/* Replies */}
           {allNestedReplies.map((reply) => (
-            <div key={reply.id} className="border-t border-border/50 px-4">
+            <div key={reply.id} id={`comment-${reply.id}`} className={cn("border-t border-border/50 px-4 transition-colors duration-700", highlightedCommentId === reply.id && "bg-brand/5")}>
               <CommentRow
                 issueId={issueId}
                 entry={reply}
