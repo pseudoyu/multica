@@ -25,6 +25,7 @@ import { BatchActionToolbar } from "./batch-action-toolbar";
 export function IssuesPage() {
   const wsId = useWorkspaceId();
   const { data: allIssues = [], isLoading: loading } = useQuery(issueListOptions(wsId));
+
   const workspace = useWorkspaceStore((s) => s.workspace);
   const scope = useIssuesScopeStore((s) => s.scope);
   const viewMode = useIssueViewStore((s) => s.viewMode);

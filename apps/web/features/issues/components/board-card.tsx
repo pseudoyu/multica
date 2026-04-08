@@ -2,7 +2,8 @@
 
 import { useCallback, memo } from "react";
 import Link from "next/link";
-import { useSortable } from "@dnd-kit/sortable";
+import { useSortable, defaultAnimateLayoutChanges } from "@dnd-kit/sortable";
+import type { AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@/shared/types";
@@ -166,6 +167,12 @@ export const BoardCardContent = memo(function BoardCardContent({
   );
 });
 
+const animateLayoutChanges: AnimateLayoutChanges = (args) => {
+  const { isSorting, wasDragging } = args;
+  if (isSorting || wasDragging) return false;
+  return defaultAnimateLayoutChanges(args);
+};
+
 export const DraggableBoardCard = memo(function DraggableBoardCard({ issue }: { issue: Issue }) {
   const {
     attributes,
@@ -177,6 +184,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({ issue }: { 
   } = useSortable({
     id: issue.id,
     data: { status: issue.status },
+    animateLayoutChanges,
   });
 
   const style = {

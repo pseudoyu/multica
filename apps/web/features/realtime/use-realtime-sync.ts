@@ -45,11 +45,6 @@ export function useRealtimeSync(ws: WSClient | null) {
   useEffect(() => {
     if (!ws) return;
 
-    // Event types handled by specific handlers below — skip generic refresh
-    const specificEvents = new Set([
-      "issue:updated", "issue:created", "issue:deleted", "inbox:new",
-    ]);
-
     const refreshMap: Record<string, () => void> = {
       inbox: () => {
         const wsId = useWorkspaceStore.getState().workspace?.id;
@@ -85,6 +80,11 @@ export function useRealtimeSync(ws: WSClient | null) {
       );
     };
 
+    // Event types handled by specific handlers below — skip generic refresh
+    const specificEvents = new Set([
+      "issue:updated", "issue:created", "issue:deleted", "inbox:new",
+    ]);
+
     const unsubAny = ws.onAny((msg) => {
       const myUserId = useAuthStore.getState().user?.id;
       if (msg.actor_id && msg.actor_id === myUserId) {
@@ -98,6 +98,8 @@ export function useRealtimeSync(ws: WSClient | null) {
     });
 
     // --- Specific event handlers (granular updates, no full refetch) ---
+    // NOTE: ws.on() passes msg.payload (no actor_id). Self-event suppression
+    // requires WSClient changes to expose actor_id — tracked as separate task.
 
     const unsubIssueUpdated = ws.on("issue:updated", (p) => {
       const { issue } = p as IssueUpdatedPayload;

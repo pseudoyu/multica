@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,9 @@ import {
   type CollisionDetection,
   type DragStartEvent,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
+import { arrayMove } from "@dnd-kit/sortable";
 import { Eye, MoreHorizontal } from "lucide-react";
 import type { Issue, IssueStatus } from "@/shared/types";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,9 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { ALL_STATUSES, STATUS_CONFIG } from "@/features/issues/config";
-import { useViewStoreApi } from "@/features/issues/stores/view-store-context";
+import { useViewStoreApi, useViewStore } from "@/features/issues/stores/view-store-context";
+import type { SortField, SortDirection } from "@/features/issues/stores/view-store";
+import { sortIssues } from "@/features/issues/utils/sort";
 import { StatusIcon } from "./status-icon";
 import { BoardColumn } from "./board-column";
 import { BoardCardContent } from "./board-card";
@@ -44,13 +48,47 @@ const kanbanCollision: CollisionDetection = (args) => {
   return closestCenter(args);
 };
 
-/** Compute a float position to place an item at `targetIndex` within `siblings`. */
-function computePosition(siblings: Issue[], targetIndex: number): number {
-  if (siblings.length === 0) return 0;
-  if (targetIndex <= 0) return siblings[0]!.position - 1;
-  if (targetIndex >= siblings.length)
-    return siblings[siblings.length - 1]!.position + 1;
-  return (siblings[targetIndex - 1]!.position + siblings[targetIndex]!.position) / 2;
+/** Build column ID arrays from TQ issue data, respecting current sort. */
+function buildColumns(
+  issues: Issue[],
+  visibleStatuses: IssueStatus[],
+  sortBy: SortField,
+  sortDirection: SortDirection,
+): Record<IssueStatus, string[]> {
+  const cols = {} as Record<IssueStatus, string[]>;
+  for (const status of visibleStatuses) {
+    const sorted = sortIssues(
+      issues.filter((i) => i.status === status),
+      sortBy,
+      sortDirection,
+    );
+    cols[status] = sorted.map((i) => i.id);
+  }
+  return cols;
+}
+
+/** Compute a float position for `activeId` based on its neighbors in `ids`. */
+function computePosition(ids: string[], activeId: string, issueMap: Map<string, Issue>): number {
+  const idx = ids.indexOf(activeId);
+  if (idx === -1) return 0;
+  const getPos = (id: string) => issueMap.get(id)?.position ?? 0;
+  if (ids.length === 1) return issueMap.get(activeId)?.position ?? 0;
+  if (idx === 0) return getPos(ids[1]!) - 1;
+  if (idx === ids.length - 1) return getPos(ids[idx - 1]!) + 1;
+  return (getPos(ids[idx - 1]!) + getPos(ids[idx + 1]!)) / 2;
+}
+
+/** Find which column (status) contains a given ID (issue or column droppable). */
+function findColumn(
+  columns: Record<IssueStatus, string[]>,
+  id: string,
+  visibleStatuses: IssueStatus[],
+): IssueStatus | null {
+  if (visibleStatuses.includes(id as IssueStatus)) return id as IssueStatus;
+  for (const [status, ids] of Object.entries(columns)) {
+    if (ids.includes(id)) return status as IssueStatus;
+  }
+  return null;
 }
 
 export function BoardView({
@@ -70,7 +108,52 @@ export function BoardView({
     newPosition?: number
   ) => void;
 }) {
+  const sortBy = useViewStore((s) => s.sortBy);
+  const sortDirection = useViewStore((s) => s.sortDirection);
+
+  // --- Drag state ---
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
+  const isDraggingRef = useRef(false);
+
+  // --- Local columns state ---
+  // Between drags: follows TQ via useEffect.
+  // During drag: local-only, driven by onDragOver/onDragEnd.
+  const [columns, setColumns] = useState<Record<IssueStatus, string[]>>(() =>
+    buildColumns(issues, visibleStatuses, sortBy, sortDirection),
+  );
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setColumns(buildColumns(issues, visibleStatuses, sortBy, sortDirection));
+    }
+  }, [issues, visibleStatuses, sortBy, sortDirection]);
+
+  // After a cross-column move, lock for one animation frame so dnd-kit's
+  // collision detection can stabilize before processing the next move.
+  // Without this, collision oscillates: A→B→A→B… until React bails out.
+  const recentlyMovedRef = useRef(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      recentlyMovedRef.current = false;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [columns]);
+
+  // --- Issue map ---
+  // Frozen during drag so BoardColumn/DraggableBoardCard props stay
+  // referentially stable even if a TQ refetch lands mid-drag.
+  const issueMap = useMemo(() => {
+    const map = new Map<string, Issue>();
+    for (const issue of issues) map.set(issue.id, issue);
+    return map;
+  }, [issues]);
+
+  const issueMapRef = useRef(issueMap);
+  if (!isDraggingRef.current) {
+    issueMapRef.current = issueMap;
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -78,89 +161,100 @@ export function BoardView({
     })
   );
 
-  // Pre-sort issues by position per status for position calculations
-  const issuesByStatus = useMemo(() => {
-    const map: Record<string, Issue[]> = {};
-    for (const status of visibleStatuses) {
-      map[status] = issues
-        .filter((i) => i.status === status)
-        .sort((a, b) => a.position - b.position);
-    }
-    return map;
-  }, [issues, visibleStatuses]);
-
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
-      const issue = issues.find((i) => i.id === event.active.id);
-      if (issue) setActiveIssue(issue);
+      isDraggingRef.current = true;
+      const issue = issueMapRef.current.get(event.active.id as string) ?? null;
+      setActiveIssue(issue);
     },
-    [issues]
+    [],
+  );
+
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const { active, over } = event;
+      if (!over || recentlyMovedRef.current) return;
+
+      const activeId = active.id as string;
+      const overId = over.id as string;
+
+      setColumns((prev) => {
+        const activeCol = findColumn(prev, activeId, visibleStatuses);
+        const overCol = findColumn(prev, overId, visibleStatuses);
+        if (!activeCol || !overCol || activeCol === overCol) return prev;
+
+        recentlyMovedRef.current = true;
+        const oldIds = prev[activeCol]!.filter((id) => id !== activeId);
+        const newIds = [...prev[overCol]!];
+        const overIndex = newIds.indexOf(overId);
+        const insertIndex = overIndex >= 0 ? overIndex : newIds.length;
+        newIds.splice(insertIndex, 0, activeId);
+        return { ...prev, [activeCol]: oldIds, [overCol]: newIds };
+      });
+    },
+    [visibleStatuses],
   );
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      setActiveIssue(null);
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
+      isDraggingRef.current = false;
+      setActiveIssue(null);
 
-      const issueId = active.id as string;
-      const currentIssue = issues.find((i) => i.id === issueId);
-      if (!currentIssue) return;
+      const resetColumns = () =>
+        setColumns(buildColumns(issues, visibleStatuses, sortBy, sortDirection));
 
-      // Determine target status
-      let targetStatus: IssueStatus;
-      let overIsColumn = false;
-
-      if (visibleStatuses.includes(over.id as IssueStatus)) {
-        targetStatus = over.id as IssueStatus;
-        overIsColumn = true;
-      } else {
-        const targetIssue = issues.find((i) => i.id === over.id);
-        if (!targetIssue) return;
-        targetStatus = targetIssue.status;
+      if (!over) {
+        resetColumns();
+        return;
       }
 
-      // Get sorted siblings in the target column (excluding the dragged item)
-      const siblings = (issuesByStatus[targetStatus] ?? []).filter(
-        (i) => i.id !== issueId
-      );
+      const activeId = active.id as string;
+      const overId = over.id as string;
 
-      // Compute new position
-      let newPosition: number;
+      const cols = columnsRef.current;
+      const activeCol = findColumn(cols, activeId, visibleStatuses);
+      const overCol = findColumn(cols, overId, visibleStatuses);
+      if (!activeCol || !overCol) {
+        resetColumns();
+        return;
+      }
 
-      if (overIsColumn) {
-        // Dropped on empty area of column → append to end
-        newPosition = computePosition(siblings, siblings.length);
-      } else {
-        // Dropped on a specific card → insert at that card's index
-        const overIndex = siblings.findIndex((i) => i.id === over.id);
-        if (overIndex === -1) {
-          newPosition = computePosition(siblings, siblings.length);
-        } else {
-          const isSameColumn = currentIssue.status === targetStatus;
-          const overIssuePosition = siblings[overIndex]!.position;
-
-          if (isSameColumn && currentIssue.position < overIssuePosition) {
-            // Moving down → insert after the over card
-            newPosition = computePosition(siblings, overIndex + 1);
-          } else {
-            // Moving up or cross-column → insert before the over card
-            newPosition = computePosition(siblings, overIndex);
-          }
+      // Same-column reorder
+      let finalColumns = cols;
+      if (activeCol === overCol) {
+        const ids = cols[activeCol]!;
+        const oldIndex = ids.indexOf(activeId);
+        const newIndex = ids.indexOf(overId);
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+          const reordered = arrayMove(ids, oldIndex, newIndex);
+          finalColumns = { ...cols, [activeCol]: reordered };
+          setColumns(finalColumns);
         }
       }
 
-      // Skip if nothing changed
+      const finalCol = findColumn(finalColumns, activeId, visibleStatuses);
+      if (!finalCol) {
+        resetColumns();
+        return;
+      }
+
+      const map = issueMapRef.current;
+      const finalIds = finalColumns[finalCol]!;
+      const newPosition = computePosition(finalIds, activeId, map);
+      const currentIssue = map.get(activeId);
+
       if (
-        currentIssue.status === targetStatus &&
+        currentIssue &&
+        currentIssue.status === finalCol &&
         currentIssue.position === newPosition
       ) {
         return;
       }
 
-      onMoveIssue(issueId, targetStatus, newPosition);
+      onMoveIssue(activeId, finalCol, newPosition);
     },
-    [issues, issuesByStatus, onMoveIssue, visibleStatuses]
+    [issues, visibleStatuses, sortBy, sortDirection, onMoveIssue],
   );
 
   return (
@@ -168,6 +262,7 @@ export function BoardView({
       sensors={sensors}
       collisionDetection={kanbanCollision}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-4">
@@ -175,7 +270,8 @@ export function BoardView({
           <BoardColumn
             key={status}
             status={status}
-            issues={issues.filter((i) => i.status === status)}
+            issueIds={columns[status] ?? []}
+            issueMap={issueMapRef.current}
           />
         ))}
 
@@ -187,9 +283,9 @@ export function BoardView({
         )}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeIssue ? (
-          <div className="w-[280px] rotate-1 cursor-grabbing opacity-95 shadow-md">
+          <div className="w-[280px] rotate-2 scale-105 cursor-grabbing opacity-90 shadow-lg shadow-black/10">
             <BoardCardContent issue={activeIssue} />
           </div>
         ) : null}

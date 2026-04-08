@@ -15,32 +15,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { STATUS_CONFIG } from "@/features/issues/config";
 import { useModalStore } from "@/features/modals";
-import { useViewStore, useViewStoreApi } from "@/features/issues/stores/view-store-context";
-import { sortIssues } from "@/features/issues/utils/sort";
+import { useViewStoreApi } from "@/features/issues/stores/view-store-context";
 import { StatusIcon } from "./status-icon";
 import { DraggableBoardCard } from "./board-card";
 
 export function BoardColumn({
   status,
-  issues,
+  issueIds,
+  issueMap,
 }: {
   status: IssueStatus;
-  issues: Issue[];
+  issueIds: string[];
+  issueMap: Map<string, Issue>;
 }) {
   const cfg = STATUS_CONFIG[status];
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const viewStoreApi = useViewStoreApi();
-  const sortBy = useViewStore((s) => s.sortBy);
-  const sortDirection = useViewStore((s) => s.sortDirection);
 
-  const sortedIssues = useMemo(
-    () => sortIssues(issues, sortBy, sortDirection),
-    [issues, sortBy, sortDirection]
-  );
-
-  const sortedIds = useMemo(
-    () => sortedIssues.map((i) => i.id),
-    [sortedIssues]
+  // Resolve IDs to Issue objects, preserving parent-provided order
+  const resolvedIssues = useMemo(
+    () =>
+      issueIds.flatMap((id) => {
+        const issue = issueMap.get(id);
+        return issue ? [issue] : [];
+      }),
+    [issueIds, issueMap],
   );
 
   return (
@@ -53,7 +52,7 @@ export function BoardColumn({
             {cfg.label}
           </span>
           <span className="text-xs text-muted-foreground">
-            {issues.length}
+            {issueIds.length}
           </span>
         </div>
 
@@ -97,12 +96,12 @@ export function BoardColumn({
           isOver ? "bg-accent/60" : ""
         }`}
       >
-        <SortableContext items={sortedIds} strategy={verticalListSortingStrategy}>
-          {sortedIssues.map((issue) => (
+        <SortableContext items={issueIds} strategy={verticalListSortingStrategy}>
+          {resolvedIssues.map((issue) => (
             <DraggableBoardCard key={issue.id} issue={issue} />
           ))}
         </SortableContext>
-        {issues.length === 0 && (
+        {issueIds.length === 0 && (
           <p className="py-8 text-center text-xs text-muted-foreground">
             No issues
           </p>

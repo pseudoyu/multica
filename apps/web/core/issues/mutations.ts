@@ -36,12 +36,10 @@ export function useUpdateIssue() {
     mutationFn: ({ id, ...data }: { id: string } & UpdateIssueRequest) =>
       api.updateIssue(id, data),
     onMutate: ({ id, ...data }) => {
-      // Fire-and-forget: don't await — keeps onMutate synchronous so the
+      // Fire-and-forget cancelQueries — keeps onMutate synchronous so the
       // cache update happens in the same tick as mutate(). Awaiting would
       // yield to the event loop, letting @dnd-kit reset its visual state
-      // before the optimistic update lands → card flickers back briefly.
-      // Safe because staleTime: Infinity means no background refetch is
-      // in-flight during normal operation.
+      // before the optimistic update lands.
       qc.cancelQueries({ queryKey: issueKeys.list(wsId) });
       const prevList = qc.getQueryData<ListIssuesResponse>(issueKeys.list(wsId));
       const prevDetail = qc.getQueryData<Issue>(issueKeys.detail(wsId, id));
@@ -68,6 +66,7 @@ export function useUpdateIssue() {
     },
     onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: issueKeys.detail(wsId, vars.id) });
+      qc.invalidateQueries({ queryKey: issueKeys.list(wsId) });
     },
   });
 }
