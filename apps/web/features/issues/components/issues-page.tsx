@@ -307,7 +307,7 @@ export function IssuesPage() {
             <ListTodo className="h-10 w-10 text-muted-foreground/40" />
             <p className="text-sm">No issues match this search</p>
             <p className="text-xs">
-              Try `#123`, `status:done`, `assignee:alice`, or looser keywords.
+              Try `#123`, `type:bug`, `module:auth`, `label:regression`, or looser keywords.
             </p>
           </div>
         ) : (

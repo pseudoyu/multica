@@ -367,7 +367,7 @@ export function IssuesHeader({
             onChange={(event) => onSearchQueryChange(event.target.value)}
             onCompositionStart={onSearchCompositionStart}
             onCompositionEnd={(event) => onSearchCompositionEnd(event.currentTarget.value)}
-            placeholder="Search issues, #123, status:done, assignee:alice"
+            placeholder="Search issues, #123, type:bug, module:auth"
             aria-label="Search issues"
           />
           <InputGroupAddon align="inline-end" className="gap-1">

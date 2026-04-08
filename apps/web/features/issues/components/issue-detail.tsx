@@ -21,6 +21,11 @@ import {
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -76,6 +81,20 @@ import { useIssueSubscribers } from "@/features/issues/hooks/use-issue-subscribe
 import { ReactionBar } from "@/components/common/reaction-bar";
 import { useFileUpload } from "@/shared/hooks/use-file-upload";
 import { timeAgo } from "@/shared/utils";
+import { IssueTemplateBadges } from "./issue-template-badges";
+import { IssueTemplateFormFields } from "./issue-template-form-fields";
+import {
+  collectIssueTemplateTypes,
+  collectIssueTemplateModules,
+  createIssueTemplateDraft,
+  draftToIssueTemplateMetadata,
+  getIssueTemplateValidationMessage,
+  parseIssueTemplateDescription,
+  serializeIssueTemplateDescription,
+  validateIssueTemplateDraft,
+  type IssueTemplateDraft,
+} from "@/features/issues/utils/template";
+import type { Issue } from "@/shared/types/issue";
 
 function shortDate(date: string | null): string {
   if (!date) return "—";
@@ -199,6 +218,9 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [detailsOpen, setDetailsOpen] = useState(true);
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false);
+  const [showTemplateErrors, setShowTemplateErrors] = useState(false);
+  const [workspaceTemplateDescriptions, setWorkspaceTemplateDescriptions] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -226,6 +248,50 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
   } = useIssueSubscribers(id, user?.id);
 
   const loading = issueLoading;
+  const parsedTemplate = parseIssueTemplateDescription(issue?.description);
+  const templateDescriptionPool = [
+    ...allIssues.map((item) => item.description),
+    ...workspaceTemplateDescriptions,
+  ];
+  const typeOptions = collectIssueTemplateTypes(
+    templateDescriptionPool,
+  );
+  const moduleOptions = collectIssueTemplateModules(
+    templateDescriptionPool,
+  );
+  const [templateDraft, setTemplateDraft] = useState<IssueTemplateDraft>(
+    createIssueTemplateDraft(parsedTemplate.metadata),
+  );
+  const templateErrors = validateIssueTemplateDraft(templateDraft);
+
+  useEffect(() => {
+    setTemplateDraft(createIssueTemplateDraft(parsedTemplate.metadata));
+    setShowTemplateErrors(false);
+  }, [id, issue?.description]);
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+
+    let cancelled = false;
+    api
+      .listIssues({ all: true })
+      .then((res) => {
+        if (cancelled) return;
+        setWorkspaceTemplateDescriptions(
+          res.issues
+            .map((item: Issue) => item.description)
+            .filter((description): description is string => Boolean(description)),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWorkspaceTemplateDescriptions([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.id]);
 
   // Scroll to highlighted comment once timeline loads (fire only once per highlightCommentId)
   useEffect(() => {
@@ -627,12 +693,21 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
             }}
           />
 
+          <IssueTemplateBadges
+            metadata={parsedTemplate.metadata}
+            className="mt-4"
+          />
+
           <ContentEditor
             ref={descEditorRef}
             key={id}
-            defaultValue={issue.description || ""}
+            defaultValue={parsedTemplate.body || ""}
             placeholder="Add description..."
-            onUpdate={(md) => handleUpdateField({ description: md || undefined })}
+            onUpdate={(md) =>
+              handleUpdateField({
+                description:
+                  serializeIssueTemplateDescription(parsedTemplate.metadata, md) || undefined,
+              })}
             onUploadFile={handleDescriptionUpload}
             debounceMs={1500}
             className="mt-5"
@@ -1003,6 +1078,27 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
                   onUpdate={handleUpdateField}
                 />
               </PropRow>
+
+              <div className="pt-3 mt-3 border-t border-border/60">
+                <div className="flex items-center justify-between pb-2">
+                  <span className="text-xs font-medium text-muted-foreground">Metadata</span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setTemplateEditorOpen(true)}
+                  >
+                    {parsedTemplate.metadata ? "Edit" : "Add"}
+                  </Button>
+                </div>
+
+                {parsedTemplate.metadata ? (
+                  <IssueTemplateBadges metadata={parsedTemplate.metadata} />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Add type and module. Version and labels are optional.
+                  </p>
+                )}
+              </div>
             </div>}
           </div>
 
@@ -1036,6 +1132,59 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
 
         </div>
       </div>
+      <Dialog open={templateEditorOpen} onOpenChange={setTemplateEditorOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogTitle>Issue metadata</DialogTitle>
+          <div className="space-y-4">
+            <IssueTemplateFormFields
+              value={templateDraft}
+              onChange={(patch) =>
+                setTemplateDraft((current) => ({ ...current, ...patch }))
+              }
+              errors={showTemplateErrors ? templateErrors : undefined}
+              typeOptions={typeOptions}
+              moduleOptions={moduleOptions}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setTemplateDraft(createIssueTemplateDraft(parsedTemplate.metadata));
+                  setShowTemplateErrors(false);
+                  setTemplateEditorOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const validationErrors = validateIssueTemplateDraft(templateDraft);
+                  const metadata = draftToIssueTemplateMetadata(templateDraft);
+                  if (!metadata) {
+                    setShowTemplateErrors(true);
+                    toast.error(
+                      getIssueTemplateValidationMessage(validationErrors)
+                      || "Type and module are required. Version and labels are optional.",
+                    );
+                    return;
+                  }
+                  handleUpdateField({
+                    description:
+                      serializeIssueTemplateDescription(
+                        metadata,
+                        descEditorRef.current?.getMarkdown() ?? parsedTemplate.body,
+                      ) || undefined,
+                  });
+                  setShowTemplateErrors(false);
+                  setTemplateEditorOpen(false);
+                }}
+              >
+                Save metadata
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       </ResizablePanel>
     </ResizablePanelGroup>
   );

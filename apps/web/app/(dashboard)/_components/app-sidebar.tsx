@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -18,7 +18,7 @@ import {
   CircleUser,
 } from "lucide-react";
 import { WorkspaceAvatar } from "@/features/workspace";
-import { useIssueDraftStore } from "@/features/issues/stores/draft-store";
+import { initIssueDraftWorkspaceSync, useIssueDraftStore } from "@/features/issues/stores/draft-store";
 import {
   Sidebar,
   SidebarContent,
@@ -62,7 +62,7 @@ const workspaceNav = [
 ];
 
 function DraftDot() {
-  const hasDraft = useIssueDraftStore((s) => !!(s.draft.title || s.draft.description));
+  const hasDraft = useIssueDraftStore((s) => s.hasDraft());
   if (!hasDraft) return null;
   return <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />;
 }
@@ -86,6 +86,10 @@ export function AppSidebar() {
     () => deduplicateInboxItems(inboxItems).filter((i) => !i.read).length,
     [inboxItems],
   );
+
+  useEffect(() => {
+    initIssueDraftWorkspaceSync();
+  }, []);
 
   const logout = () => {
     router.push("/");

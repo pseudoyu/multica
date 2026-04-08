@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, memo } from "react";
+import { useCallback, memo, useMemo } from "react";
 import Link from "next/link";
 import { useSortable, defaultAnimateLayoutChanges } from "@dnd-kit/sortable";
 import type { AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -15,6 +15,8 @@ import { PriorityPicker, AssigneePicker, DueDatePicker } from "./pickers";
 import { PRIORITY_CONFIG } from "@/features/issues/config";
 import type { CardProperties } from "@/features/issues/stores/view-store";
 import { useViewStore } from "@/features/issues/stores/view-store-context";
+import { parseIssueTemplateDescription } from "@/features/issues/utils/template";
+import { IssueTemplateBadges } from "./issue-template-badges";
 
 function formatDate(date: string): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -45,6 +47,10 @@ export const BoardCardContent = memo(function BoardCardContent({
 }) {
   const storeProperties = useViewStore((s) => s.cardProperties);
   const priorityCfg = PRIORITY_CONFIG[issue.priority];
+  const parsedTemplate = useMemo(
+    () => parseIssueTemplateDescription(issue.description),
+    [issue.description],
+  );
 
   const updateIssueMutation = useUpdateIssue();
   const handleUpdate = useCallback(
@@ -58,7 +64,7 @@ export const BoardCardContent = memo(function BoardCardContent({
   );
 
   const showPriority = storeProperties.priority;
-  const showDescription = storeProperties.description && issue.description;
+  const showDescription = storeProperties.description && parsedTemplate.body;
   const showAssignee = storeProperties.assignee && issue.assignee_type && issue.assignee_id;
   const showDueDate = storeProperties.dueDate && issue.due_date;
   const showBottom = showAssignee || showDueDate;
@@ -73,10 +79,17 @@ export const BoardCardContent = memo(function BoardCardContent({
         {issue.title}
       </p>
 
+      <IssueTemplateBadges
+        metadata={parsedTemplate.metadata}
+        maxLabels={2}
+        className="mt-2"
+        singleLine
+      />
+
       {/* Description */}
       {showDescription && (
         <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
-          {issue.description}
+          {parsedTemplate.body}
         </p>
       )}
 

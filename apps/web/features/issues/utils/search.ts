@@ -7,10 +7,15 @@ import type {
 } from "@/shared/types";
 import { PRIORITY_CONFIG, STATUS_CONFIG, ALL_STATUSES } from "@/features/issues/config";
 import type { ActorFilterValue } from "@/features/issues/stores/view-store";
+import {
+  getIssueTemplateSearchTerms,
+  normalizeIssueTemplateType,
+  parseIssueTemplateDescription,
+} from "@/features/issues/utils/template";
 
 const CLOSED_STATUSES = new Set<IssueStatus>(["done", "cancelled"]);
 
-const TOKEN_REGEX = /"([^"]+)"|(\S+)/g;
+const TOKEN_REGEX = /(?:\S+:"[^"]+"|\S+:'[^']+'|"[^"]+"|'[^']+'|\S+)/g;
 
 const STATUS_ALIASES: Record<string, IssueStatus> = {
   backlog: "backlog",
@@ -54,6 +59,10 @@ export interface ParsedIssueSearch {
   issueNumber: number | null;
   statusFilters: IssueStatus[];
   priorityFilters: IssuePriority[];
+  typeFilters: string[];
+  versionTerms: string[];
+  moduleTerms: string[];
+  labelTerms: string[];
   assigneeFilters: ActorFilterValue[];
   creatorFilters: ActorFilterValue[];
   assigneeState: IssueSearchAssigneeState;
@@ -113,6 +122,11 @@ function resolvePriority(value: string): IssuePriority | null {
   return PRIORITY_ALIASES[normalizeSearchText(value)] ?? null;
 }
 
+function resolveTemplateType(value: string): string | null {
+  const normalized = normalizeIssueTemplateType(value);
+  return normalized ? normalizeSearchText(normalized) : null;
+}
+
 function resolveActors(
   value: string,
   context: IssueSearchContext,
@@ -150,6 +164,7 @@ function getActorName(
 }
 
 function buildIssueHaystack(issue: Issue, context: IssueSearchContext): string {
+  const parsedTemplate = parseIssueTemplateDescription(issue.description);
   const assigneeName = getActorName(issue.assignee_type, issue.assignee_id, context);
   const creatorName = getActorName(issue.creator_type, issue.creator_id, context);
 
@@ -159,13 +174,14 @@ function buildIssueHaystack(issue: Issue, context: IssueSearchContext): string {
       `#${issue.number}`,
       String(issue.number),
       issue.title,
-      issue.description ?? "",
+      parsedTemplate.body,
       issue.status,
       STATUS_CONFIG[issue.status].label,
       issue.priority,
       PRIORITY_CONFIG[issue.priority].label,
       assigneeName,
       creatorName,
+      ...getIssueTemplateSearchTerms(parsedTemplate.metadata),
     ].join(" "),
   );
 }
@@ -181,7 +197,8 @@ function isSameLocalDay(a: Date, b: Date): boolean {
 export function tokenizeIssueSearch(query: string): string[] {
   const tokens: string[] = [];
   for (const match of query.matchAll(TOKEN_REGEX)) {
-    const value = (match[1] ?? match[2] ?? "").trim();
+    const rawValue = (match[0] ?? "").trim();
+    const value = rawValue.includes(":") ? rawValue : unwrapQuotedValue(rawValue);
     if (value) tokens.push(value);
   }
   return tokens;
@@ -197,6 +214,10 @@ export function parseIssueSearch(
     issueNumber: null,
     statusFilters: [],
     priorityFilters: [],
+    typeFilters: [],
+    versionTerms: [],
+    moduleTerms: [],
+    labelTerms: [],
     assigneeFilters: [],
     creatorFilters: [],
     assigneeState: "any",
@@ -261,6 +282,25 @@ export function parseIssueSearch(
         addUniqueValue(parsed.priorityFilters, priority);
         break;
       }
+      case "type": {
+        const type = resolveTemplateType(rawValue);
+        if (!type) {
+          parsed.forceEmpty = true;
+          break;
+        }
+        addUniqueValue(parsed.typeFilters, type);
+        break;
+      }
+      case "version":
+        addUniqueValue(parsed.versionTerms, normalizeSearchText(rawValue));
+        break;
+      case "module":
+        addUniqueValue(parsed.moduleTerms, normalizeSearchText(rawValue));
+        break;
+      case "label":
+      case "labels":
+        addUniqueValue(parsed.labelTerms, normalizeSearchText(rawValue));
+        break;
       case "assignee":
       case "assigned": {
         const normalizedValue = normalizeSearchText(rawValue);
@@ -357,6 +397,8 @@ export function filterIssuesBySearch(
   if (parsed.forceEmpty) return [];
 
   return issues.filter((issue) => {
+    const parsedTemplate = parseIssueTemplateDescription(issue.description);
+
     if (parsed.issueNumber !== null && issue.number !== parsed.issueNumber) {
       return false;
     }
@@ -381,6 +423,40 @@ export function filterIssuesBySearch(
       !parsed.priorityFilters.includes(issue.priority)
     ) {
       return false;
+    }
+
+    if (parsed.typeFilters.length > 0) {
+      if (!parsedTemplate.metadata) return false;
+      const normalizedType = normalizeSearchText(parsedTemplate.metadata.type);
+      if (!parsed.typeFilters.includes(normalizedType)) {
+        return false;
+      }
+    }
+
+    if (parsed.versionTerms.length > 0) {
+      const version = normalizeSearchText(parsedTemplate.metadata?.version ?? "");
+      if (!version) return false;
+      if (!parsed.versionTerms.every((term) => version.includes(term))) {
+        return false;
+      }
+    }
+
+    if (parsed.moduleTerms.length > 0) {
+      const module = normalizeSearchText(parsedTemplate.metadata?.module ?? "");
+      if (!module) return false;
+      if (!parsed.moduleTerms.every((term) => module.includes(term))) {
+        return false;
+      }
+    }
+
+    if (parsed.labelTerms.length > 0) {
+      const labels = (parsedTemplate.metadata?.labels ?? []).map((label) =>
+        normalizeSearchText(label),
+      );
+      if (labels.length === 0) return false;
+      if (!parsed.labelTerms.every((term) => labels.some((label) => label.includes(term)))) {
+        return false;
+      }
     }
 
     if (parsed.assigneeState === "assigned" && !issue.assignee_id) {
@@ -411,7 +487,7 @@ export function filterIssuesBySearch(
 
     if (
       parsed.hasDescription === true &&
-      (!issue.description || issue.description.trim().length === 0)
+      (!parsedTemplate.body || parsedTemplate.body.trim().length === 0)
     ) {
       return false;
     }

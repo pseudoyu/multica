@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, ChevronRight, Maximize2, Minimize2, UserMinus, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -29,15 +29,28 @@ import { ContentEditor, type ContentEditorRef } from "@/features/editor";
 import { TitleEditor } from "@/features/editor";
 import { StatusIcon, PriorityIcon } from "@/features/issues/components";
 import { ALL_STATUSES, STATUS_CONFIG, PRIORITY_ORDER, PRIORITY_CONFIG } from "@/features/issues/config";
+import { IssueTemplateFormFields } from "@/features/issues/components/issue-template-form-fields";
 import { useWorkspaceStore, useActorName } from "@/features/workspace";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@core/hooks";
 import { memberListOptions, agentListOptions } from "@core/workspace/queries";
-import { useIssueDraftStore } from "@/features/issues/stores/draft-store";
+import { initIssueDraftWorkspaceSync, useIssueDraftStore } from "@/features/issues/stores/draft-store";
 import { useCreateIssue } from "@core/issues/mutations";
+import { api } from "@/shared/api";
 import { useFileUpload } from "@/shared/hooks/use-file-upload";
 import { FileUploadButton } from "@/components/common/file-upload-button";
 import { ActorAvatar } from "@/components/common/actor-avatar";
+import type { Issue } from "@/shared/types/issue";
+import {
+  collectIssueTemplateTypes,
+  collectIssueTemplateModules,
+  createIssueTemplateDraft,
+  draftToIssueTemplateMetadata,
+  getIssueTemplateValidationMessage,
+  serializeIssueTemplateDescription,
+  validateIssueTemplateDraft,
+  type IssueTemplateDraft,
+} from "@/features/issues/utils/template";
 
 // ---------------------------------------------------------------------------
 // Pill trigger — shared rounded-full button style for toolbar
@@ -69,6 +82,7 @@ function PillButton({
 
 export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?: Record<string, unknown> | null }) {
   const router = useRouter();
+  const workspaceId = useWorkspaceStore((s) => s.workspace?.id);
   const workspaceName = useWorkspaceStore((s) => s.workspace?.name);
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
@@ -79,14 +93,23 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
   const setDraft = useIssueDraftStore((s) => s.setDraft);
   const clearDraft = useIssueDraftStore((s) => s.clearDraft);
 
+  useEffect(() => {
+    initIssueDraftWorkspaceSync();
+  }, []);
+
   const [title, setTitle] = useState(draft.title);
   const descEditorRef = useRef<ContentEditorRef>(null);
   const [status, setStatus] = useState<IssueStatus>((data?.status as IssueStatus) || draft.status);
   const [priority, setPriority] = useState<IssuePriority>(draft.priority);
   const [submitting, setSubmitting] = useState(false);
+  const [showTemplateErrors, setShowTemplateErrors] = useState(false);
   const [assigneeType, setAssigneeType] = useState<IssueAssigneeType | undefined>(draft.assigneeType);
   const [assigneeId, setAssigneeId] = useState<string | undefined>(draft.assigneeId);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
+  const [templateDraft, setTemplateDraftState] = useState<IssueTemplateDraft>(
+    createIssueTemplateDraft(draft),
+  );
+  const [workspaceTemplateDescriptions, setWorkspaceTemplateDescriptions] = useState<string[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Assignee popover
@@ -117,6 +140,40 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
       : "Assignee";
 
   const dueDateObj = dueDate ? new Date(dueDate) : undefined;
+  const templateErrors = validateIssueTemplateDraft(templateDraft);
+  const templateDescriptionPool = [
+    ...workspaceTemplateDescriptions,
+  ];
+  const typeOptions = collectIssueTemplateTypes(
+    templateDescriptionPool,
+  );
+  const moduleOptions = collectIssueTemplateModules(
+    templateDescriptionPool,
+  );
+
+  useEffect(() => {
+    if (!workspaceId) return;
+
+    let cancelled = false;
+    api
+      .listIssues({ all: true })
+      .then((res) => {
+        if (cancelled) return;
+        setWorkspaceTemplateDescriptions(
+          res.issues
+            .map((issue: Issue) => issue.description)
+            .filter((description): description is string => Boolean(description)),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWorkspaceTemplateDescriptions([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   // Sync field changes to draft store
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
@@ -127,15 +184,30 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
     setDraft({ assigneeType: type, assigneeId: id });
   };
   const updateDueDate = (v: string | null) => { setDueDate(v); setDraft({ dueDate: v }); };
+  const updateTemplateDraft = (patch: Partial<IssueTemplateDraft>) => {
+    setTemplateDraftState((current) => ({ ...current, ...patch }));
+    setDraft(patch);
+  };
 
   const createIssueMutation = useCreateIssue();
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
+    const validationErrors = validateIssueTemplateDraft(templateDraft);
+    const metadata = draftToIssueTemplateMetadata(templateDraft);
+    if (!metadata) {
+      setShowTemplateErrors(true);
+      toast.error(
+        getIssueTemplateValidationMessage(validationErrors)
+        || "Type and module are required. Version and labels are optional.",
+      );
+      return;
+    }
     setSubmitting(true);
     try {
+      const descriptionBody = descEditorRef.current?.getMarkdown()?.trim() || undefined;
       const issue = await createIssueMutation.mutateAsync({
         title: title.trim(),
-        description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
+        description: serializeIssueTemplateDescription(metadata, descriptionBody),
         status,
         priority,
         assignee_type: assigneeType,
@@ -186,7 +258,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
           "!transition-all !duration-300 !ease-out",
           isExpanded
             ? "!max-w-4xl !w-full !h-5/6 !-translate-y-1/2"
-            : "!max-w-2xl !w-full !h-96 !-translate-y-1/2",
+            : "!max-w-2xl !w-full !h-[40rem] !-translate-y-1/2",
         )}
       >
         <DialogTitle className="sr-only">New Issue</DialogTitle>
@@ -240,8 +312,25 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
           />
         </div>
 
+        <div className="px-5 py-3 shrink-0">
+          <div className="pb-3 text-xs font-medium text-muted-foreground">
+            Metadata
+          </div>
+          <IssueTemplateFormFields
+            value={templateDraft}
+            onChange={updateTemplateDraft}
+            errors={showTemplateErrors ? templateErrors : undefined}
+            typeOptions={typeOptions}
+            moduleOptions={moduleOptions}
+            disabled={submitting}
+          />
+        </div>
+
         {/* Description — takes remaining space */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5">
+        <div className="flex-1 min-h-[12rem] overflow-y-auto border-t px-5 py-3">
+          <div className="pb-2 text-xs font-medium text-muted-foreground">
+            Description
+          </div>
           <ContentEditor
             ref={descEditorRef}
             defaultValue={draft.description}
@@ -249,6 +338,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
             onUpdate={(md) => setDraft({ description: md })}
             onUploadFile={handleUpload}
             debounceMs={500}
+            className="min-h-[10rem]"
           />
         </div>
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Issue, MemberWithUser } from "@/shared/types";
 import { filterIssuesBySearch, getSearchConstrainedStatuses, parseIssueSearch } from "./search";
+import { serializeIssueTemplateDescription } from "./template";
 
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
   return {
@@ -47,7 +48,15 @@ const issues: Issue[] = [
     number: 11,
     identifier: "MUL-11",
     title: "Fix login redirect loop",
-    description: "Users bounce back to the sign-in page.",
+    description: serializeIssueTemplateDescription(
+      {
+        type: "bug",
+        version: "v1.3.1",
+        module: "Auth",
+        labels: ["regression", "login"],
+      },
+      "Users bounce back to the sign-in page.",
+    ),
     status: "todo",
     priority: "high",
     assignee_type: "member",
@@ -115,6 +124,41 @@ describe("filterIssuesBySearch", () => {
     const result = filterIssuesBySearch(issues, parsed, context);
 
     expect(result.map((issue) => issue.id)).toEqual(["2"]);
+  });
+
+  it("supports structured searches against template metadata", () => {
+    const parsed = parseIssueSearch(
+      "type:bug version:v1.3.1 module:auth label:regression",
+      context,
+    );
+    const result = filterIssuesBySearch(issues, parsed, context);
+
+    expect(result.map((issue) => issue.id)).toEqual(["1"]);
+  });
+
+  it("supports structured searches against custom types", () => {
+    const customIssues = [
+      ...issues,
+      makeIssue({
+        id: "4",
+        number: 19,
+        identifier: "MUL-19",
+        title: "Track release blocker",
+        description: serializeIssueTemplateDescription(
+          {
+            type: "Release blocker",
+            version: "",
+            module: "Release",
+            labels: [],
+          },
+          "Body",
+        ),
+      }),
+    ];
+    const parsed = parseIssueSearch('type:"Release blocker"', context);
+    const result = filterIssuesBySearch(customIssues, parsed, context);
+
+    expect(result.map((issue) => issue.id)).toEqual(["4"]);
   });
 
   it("filters by due state and description presence", () => {
