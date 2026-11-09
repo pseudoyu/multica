@@ -31,6 +31,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/integrations/dingtalk"
 	"github.com/multica-ai/multica/server/internal/integrations/ghsnapshot"
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
+	"github.com/multica-ai/multica/server/internal/integrations/line"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
@@ -401,6 +402,15 @@ type Handler struct {
 	// The process owner starts and joins it; the synchronous event bus only
 	// enqueues EventChatDone work.
 	TelegramOutbound *telegram.Outbound
+	// LineInstall owns the LINE channel install lifecycle. Nil unless
+	// MULTICA_LINE_SECRET_KEY is set.
+	LineInstall *line.InstallService
+	// LineBindingTokens mints/redeems the "link your LINE account" tokens.
+	LineBindingTokens *line.BindingTokenService
+	// LineWebhook verifies and routes LINE webhook requests.
+	LineWebhook *line.Webhook
+	// LineOutbound delivers agent answers back to LINE.
+	LineOutbound *line.Outbound
 
 	// channelFileDelivery names the channel types that can, IN THIS
 	// DEPLOYMENT, carry a file the agent produced the last hop into the

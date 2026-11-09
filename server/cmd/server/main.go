@@ -786,6 +786,9 @@ func main() {
 	if h.TelegramOutbound != nil {
 		h.TelegramOutbound.Start(sweepCtx)
 	}
+	if h.LineOutbound != nil {
+		h.LineOutbound.Start(sweepCtx)
+	}
 	// GitHub PR-card API snapshot pipeline (MUL-5265): worker pool + TTL sweeper.
 	// No-op when unconfigured (no App private key).
 	h.PRRefresh.Start(sweepCtx)
@@ -948,6 +951,11 @@ func main() {
 		JoinTelegram: func() {
 			if h.TelegramOutbound != nil && !h.TelegramOutbound.WaitWithTimeout(5*time.Second) {
 				slog.Warn("telegram outbound workers did not exit within shutdown timeout")
+			}
+		},
+		JoinLine: func() {
+			if h.LineOutbound != nil && !h.LineOutbound.WaitWithTimeout(5*time.Second) {
+				slog.Warn("line outbound workers did not exit within shutdown timeout")
 			}
 		},
 		// Joined so the lease renewer can issue a final release before exit;

@@ -235,4 +235,8 @@ const (
 	// front-ends invalidate the Telegram installations query on either.
 	EventTelegramInstallationCreated = "telegram_installation:created"
 	EventTelegramInstallationRevoked = "telegram_installation:revoked"
+
+	// LINE installation lifecycle. Same contract as the Telegram pair.
+	EventLineInstallationCreated = "line_installation:created"
+	EventLineInstallationRevoked = "line_installation:revoked"
 )

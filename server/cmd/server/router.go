@@ -36,6 +36,7 @@ import (
 	composiointeg "github.com/multica-ai/multica/server/internal/integrations/composio"
 	"github.com/multica-ai/multica/server/internal/integrations/dingtalk"
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
+	"github.com/multica-ai/multica/server/internal/integrations/line"
 	"github.com/multica-ai/multica/server/internal/integrations/slack"
 	"github.com/multica-ai/multica/server/internal/integrations/telegram"
 	"github.com/multica-ai/multica/server/internal/integrations/wecom"
@@ -1305,6 +1306,48 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		slog.Info("telegram integration disabled (MULTICA_TELEGRAM_SECRET_KEY not set)")
 	}
 
+	// LINE integration. The admin pastes the channel ID and channel secret;
+	// access tokens are minted on demand as 15-minute stateless tokens, so no
+	// long-lived token is stored. LINE only delivers webhooks, so inbound is
+	// the public route /api/webhooks/line/{installationId} (registered below),
+	// which calls the shared Router directly: no supervisor Factory. Gated by
+	// MULTICA_LINE_SECRET_KEY (the at-rest secret encryption key).
+	if lineKey, err := secretbox.LoadKey("MULTICA_LINE_SECRET_KEY"); err == nil {
+		box, err := secretbox.New(lineKey)
+		if err != nil {
+			slog.Error("line: secretbox.New failed; LINE integration disabled", "error", err)
+		} else {
+			lineTokens := line.NewTokenSource(nil, "")
+			lineBindingSvc := line.NewBindingTokenService(queries, pool)
+			h.LineBindingTokens = lineBindingSvc
+			lineReplier := line.NewOutboundReplier(line.OutboundReplierConfig{
+				Binding: lineBindingSvc,
+				Queries: queries,
+				Decrypt: box.Open,
+				Tokens:  lineTokens,
+				// The bind link (/line/bind) is a web-app page.
+				AppURL: appURLFromEnv(),
+				Logger: slog.Default(),
+			})
+			lineTyping := line.NewTypingNotifier(context.Background(), queries, box.Open, lineTokens, slog.Default())
+			channelRouter.Register(line.TypeLine, line.NewLineResolverSet(queries, pool, lineReplier, lineTyping))
+			lineOutbound := line.NewOutbound(queries, box.Open, lineTokens, appURLFromEnv(), slog.Default())
+			lineOutbound.Register(bus)
+			h.LineOutbound = lineOutbound
+			h.LineWebhook = line.NewWebhook(queries, box.Open, channelRouter.Handle, lineReplier, slog.Default())
+			installSvc, ierr := line.NewInstallService(queries, pool, box, lineTokens,
+				strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PUBLIC_URL")), "/"), slog.Default())
+			if ierr != nil {
+				slog.Error("line: InstallService init failed; install disabled", "error", ierr)
+			} else {
+				h.LineInstall = installSvc
+			}
+			slog.Info("LINE integration enabled (webhook)")
+		}
+	} else {
+		slog.Info("LINE integration disabled (MULTICA_LINE_SECRET_KEY not set)")
+	}
+
 	// Composio integration (MUL-3720). Gated by COMPOSIO_API_KEY plus the
 	// composio_mcp_apps feature flag. The env var is the project-scoped key the
 	// standalone SDK authenticates Composio with (sent as x-api-key; the project
@@ -1619,6 +1662,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// the connection id in the path selects the workspace, provider, and
 	// decryption secret.
 	r.Post("/api/webhooks/vcs/{connectionId}", h.HandleVCSWebhook)
+	// LINE Messaging API webhook. Public: LINE signs every request with the
+	// channel secret (x-line-signature), verified before the body is parsed.
+	r.Post("/api/webhooks/line/{installationId}", h.HandleLineWebhook)
 	// Stripe webhook (no Multica auth — Stripe signs the raw body
 	// with a shared secret, the multica-cloud upstream verifies. We
 	// only forward the bytes + the Stripe-Signature header; see
@@ -1972,6 +2018,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/telegram/installations/{installationId}", h.RevokeTelegramInstallation)
 					r.Post("/telegram/install", h.RegisterTelegramBot)
 				})
+
+				// LINE integration. Same admin/member split as Telegram.
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
+					r.Get("/line/installations", h.ListLineInstallations)
+				})
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
+					r.Delete("/line/installations/{installationId}", h.RevokeLineInstallation)
+					r.Post("/line/install", h.RegisterLineChannel)
+				})
 			})
 		})
 
@@ -1999,6 +2056,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// workspace-scoped, identity from the session, token proves only
 		// "this Telegram user id requested binding".
 		r.Post("/api/telegram/binding/redeem", h.RedeemTelegramBindingToken)
+		// LINE binding-token redemption. Same rationale as Telegram.
+		r.Post("/api/line/binding/redeem", h.RedeemLineBindingToken)
 
 		// Composio integration (MUL-3720). User-scoped (no workspace context):
 		// a connection belongs to a user. These four require a logged-in
