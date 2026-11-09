@@ -12,6 +12,7 @@ import {
 } from "@multica/core/dingtalk";
 import { wecomInstallationsOptions } from "@multica/core/wecom";
 import { telegramInstallationsOptions } from "@multica/core/telegram";
+import { lineInstallationsOptions } from "@multica/core/line";
 import { memberListOptions } from "@multica/core/workspace/queries";
 import { LarkAgentBindButton } from "../../../settings/components/lark-tab";
 import { LarkMark } from "../../../settings/components/lark-mark";
@@ -28,6 +29,8 @@ import { WecomAgentBindButton } from "../../../settings/components/wecom-tab";
 import { WecomMark } from "../../../settings/components/wecom-mark";
 import { TelegramAgentBindButton } from "../../../settings/components/telegram-tab";
 import { TelegramMark } from "../../../settings/components/telegram-mark";
+import { LineAgentBindButton } from "../../../settings/components/line-tab";
+import { LineMark } from "../../../settings/components/line-mark";
 import { useT } from "../../../i18n";
 
 /**
@@ -72,6 +75,10 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
     ...telegramInstallationsOptions(wsId),
     enabled: !!wsId,
   });
+  const { data: lineListing } = useQuery({
+    ...lineInstallationsOptions(wsId),
+    enabled: !!wsId,
+  });
   const { data: members = [] } = useQuery({
     ...memberListOptions(wsId),
     enabled: !!wsId,
@@ -96,6 +103,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
   const canManageSlack = isWorkspaceAdmin;
   const canManageWecom = isWorkspaceAdmin;
   const canManageTelegram = isWorkspaceAdmin;
+  const canManageLine = isWorkspaceAdmin;
   const hasActiveInstall =
     listing?.installations.some(
       (inst) => inst.agent_id === agent.id && inst.status === "active",
@@ -151,6 +159,13 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
       (inst) => inst.agent_id === agent.id && inst.status === "active",
     ) ?? false;
 
+  const lineConfigured = lineListing?.configured === true;
+  const lineInstallSupported = lineListing?.install_supported === true;
+  const lineHasActiveInstall =
+    lineListing?.installations.some(
+      (inst) => inst.agent_id === agent.id && inst.status === "active",
+    ) ?? false;
+
   // Preserve the established Integrations management gate: a member who can
   // manage no platform gets the read-only note instead of install controls.
   // The agent-scoped DingTalk relationship remains visible because reaching
@@ -160,7 +175,8 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
     !canManageSlack &&
     !canManageDingtalk &&
     !canManageWecom &&
-    !canManageTelegram
+    !canManageTelegram &&
+    !canManageLine
   ) {
     return (
       <div className="space-y-6">
@@ -435,6 +451,40 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             </div>
           ) : (
             <TelegramAgentBindButton agentId={agent.id} agentName={agent.name} />
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border">
+        <div className="flex items-start gap-3 p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+            <LineMark className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="text-body font-medium">{ts(($) => $.line.section_title)}</h3>
+            <p className="text-caption leading-relaxed text-muted-foreground">
+              {ts(($) => $.line.page_description)}
+            </p>
+          </div>
+        </div>
+        <div className="border-t px-4 py-3">
+          {!canManageLine ? (
+            <p className="text-caption text-muted-foreground">
+              {t(($) => $.tab_body.integrations.members_note)}
+            </p>
+          ) : !lineConfigured ? (
+            <p className="text-caption text-muted-foreground">
+              {ts(($) => $.line.not_enabled_title)}
+            </p>
+          ) : !lineInstallSupported && !lineHasActiveInstall ? (
+            <div className="space-y-1">
+              <p className="text-caption font-medium">{ts(($) => $.line.preview_title)}</p>
+              <p className="text-caption text-muted-foreground">
+                {ts(($) => $.line.preview_description)}
+              </p>
+            </div>
+          ) : (
+            <LineAgentBindButton agentId={agent.id} agentName={agent.name} />
           )}
         </div>
       </section>

@@ -69,7 +69,7 @@ export function isSensitiveAnalyticsUrl(raw: string | undefined | null): boolean
 
 // Top-level routes that are not workspace slugs. RESERVED_SLUGS covers most of
 // them; the IM bind and join routes predate it and are listed here directly.
-const GLOBAL_ROUTES_OUTSIDE_RESERVED = new Set(["join", "lark", "slack", "telegram", "wecom"]);
+const GLOBAL_ROUTES_OUTSIDE_RESERVED = new Set(["join", "lark", "line", "slack", "telegram", "wecom"]);
 
 // Sections under /{workspaceSlug}/. Anything else is reported as a generic
 // workspace page rather than echoing an unknown segment.

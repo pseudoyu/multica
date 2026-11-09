@@ -158,6 +158,8 @@
     "./wecom/queries": "./wecom/queries.ts",
     "./telegram": "./telegram/index.ts",
     "./telegram/queries": "./telegram/queries.ts",
+    "./line": "./line/index.ts",
+    "./line/queries": "./line/queries.ts",
     "./feedback": "./feedback/index.ts",
     "./feedback/mutations": "./feedback/mutations.ts",
     "./realtime": "./realtime/index.ts",

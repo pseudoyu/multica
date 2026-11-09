@@ -84,6 +84,12 @@ vi.mock("@multica/core/telegram", () => ({
     queryFn: () => Promise.resolve(telegramListingRef.current),
   }),
 }));
+vi.mock("@multica/core/line", () => ({
+  lineInstallationsOptions: () => ({
+    queryKey: ["line", "installations"],
+    queryFn: () => Promise.resolve({ installations: [], configured: false }),
+  }),
+}));
 
 import { AgentAdvancedSettings, type AdvancedSection } from "./agent-advanced-settings";
 

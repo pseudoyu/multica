@@ -233,6 +233,10 @@ import type {
   ListTelegramInstallationsResponse,
   RegisterTelegramRequest,
   RedeemTelegramBindingTokenResponse,
+  LineInstallation,
+  ListLineInstallationsResponse,
+  RegisterLineRequest,
+  RedeemLineBindingTokenResponse,
   Squad,
   SquadMember,
   SquadMemberStatusListResponse,
@@ -422,6 +426,12 @@ import {
   EMPTY_TELEGRAM_INSTALLATION,
   EMPTY_LIST_TELEGRAM_INSTALLATIONS_RESPONSE,
   EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE,
+  LineInstallationSchema,
+  ListLineInstallationsResponseSchema,
+  RedeemLineBindingTokenResponseSchema,
+  EMPTY_LINE_INSTALLATION,
+  EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE,
+  EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE,
   EMPTY_BILLING_BALANCE,
   EMPTY_BILLING_TRANSACTIONS_PAGE,
   EMPTY_BILLING_BATCHES_PAGE,
@@ -5819,6 +5829,53 @@ export class ApiClient {
       RedeemTelegramBindingTokenResponseSchema,
       EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE,
       { endpoint: "POST /api/telegram/binding/redeem" },
+    );
+  }
+
+  async listLineInstallations(workspaceId: string): Promise<ListLineInstallationsResponse> {
+    const raw = await this.fetch<unknown>(`/api/workspaces/${workspaceId}/line/installations`);
+    return parseWithFallback(
+      raw,
+      ListLineInstallationsResponseSchema,
+      EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE,
+      { endpoint: "GET /api/workspaces/:id/line/installations" },
+    );
+  }
+
+  async registerLineChannel(
+    workspaceId: string,
+    agentId: string,
+    body: RegisterLineRequest,
+  ): Promise<LineInstallation> {
+    const search = new URLSearchParams({ agent_id: agentId });
+    const raw = await this.fetch<unknown>(
+      `/api/workspaces/${workspaceId}/line/install?${search.toString()}`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+    return parseWithFallback(raw, LineInstallationSchema, EMPTY_LINE_INSTALLATION, {
+      endpoint: "POST /api/workspaces/:id/line/install",
+    });
+  }
+
+  async deleteLineInstallation(workspaceId: string, installationId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/line/installations/${installationId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async redeemLineBindingToken(token: string): Promise<RedeemLineBindingTokenResponse> {
+    const raw = await this.fetch<unknown>(`/api/line/binding/redeem`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+    return parseWithFallback(
+      raw,
+      RedeemLineBindingTokenResponseSchema,
+      EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE,
+      { endpoint: "POST /api/line/binding/redeem" },
     );
   }
 }

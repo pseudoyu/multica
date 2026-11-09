@@ -305,6 +305,13 @@ export type {
   RedeemTelegramBindingTokenResponse,
 } from "./telegram";
 export type {
+  LineInstallation,
+  LineLanguage,
+  ListLineInstallationsResponse,
+  RegisterLineRequest,
+  RedeemLineBindingTokenResponse,
+} from "./line";
+export type {
   Autopilot,
   AutopilotStatus,
   AutopilotExecutionMode,

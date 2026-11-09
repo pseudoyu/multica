@@ -109,6 +109,21 @@
     "error_not_member": "當前登入的 Multica 帳號不是該工作區的成員。",
     "error_unknown": "出了點問題。請重試；若問題持續，請聯絡工作區管理員。"
   },
+  "line_bind": {
+    "page_title": "繫結你的 LINE 帳號",
+    "redeeming": "正在繫結…",
+    "needs_auth_description": "請先登入 Multica 完成繫結。連結中的 token 會把你的 LINE 帳號繫結到當前登入的 Multica 使用者，因此需要先登入。",
+    "sign_in": "登入",
+    "done_title": "繫結成功。",
+    "done_description": "你在 LINE 中發給機器人的下一條訊息將直達 AI 代理。可以關閉此頁面了。",
+    "error_title": "繫結未完成",
+    "error_admin_hint": "如果問題持續出現，請在 LINE 中再給機器人發一條訊息以獲取新連結。",
+    "error_missing_token": "連結缺少 token。請在 LINE 中再給機器人發一條訊息以獲取新連結。",
+    "error_expired": "連結無效或已過期（有效期 15 分鐘）。請再給機器人發一條訊息以獲取新連結。",
+    "error_already_bound": "該 LINE 帳號已繫結到另一個 Multica 使用者。如需轉移帳號，請先顯式解綁。",
+    "error_not_member": "當前登入的 Multica 帳號不是該工作區的成員。",
+    "error_unknown": "出了點問題。請重試；若問題持續，請聯絡工作區管理員。"
+  },
   "expandable_description": {
     "expand": "檢視詳情",
     "collapse": "收起"

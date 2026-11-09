@@ -14,6 +14,12 @@ import {
   EMPTY_TELEGRAM_INSTALLATION,
   EMPTY_LIST_TELEGRAM_INSTALLATIONS_RESPONSE,
   EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE,
+  LineInstallationSchema,
+  ListLineInstallationsResponseSchema,
+  RedeemLineBindingTokenResponseSchema,
+  EMPTY_LINE_INSTALLATION,
+  EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE,
+  EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE,
   AgentTaskListSchema,
   AgentActivityBucketListSchema,
   TaskMessageListSchema,
@@ -2186,6 +2192,50 @@ describe("Telegram installation schemas", () => {
         { endpoint: "POST /api/telegram/binding/redeem" },
       ),
     ).toEqual(EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE);
+  });
+});
+
+// LINE drives the same connect/disabled/revoked UI decisions as Telegram.
+describe("LINE installation schemas", () => {
+  it("parses a well-formed installation", () => {
+    const parsed = LineInstallationSchema.parse({
+      id: "i1",
+      bot_user_id: "U0123",
+      channel_id: "1650000000",
+      basic_id: "@123abcde",
+      language: "zh-Hant",
+      webhook_url: "https://multica.example/api/webhooks/line/i1",
+      status: "active",
+    });
+    expect(parsed.basic_id).toBe("@123abcde");
+    expect(parsed.language).toBe("zh-Hant");
+    expect(parsed.status).toBe("active");
+  });
+
+  it("defaults incomplete data to the disconnected state", () => {
+    const parsed = LineInstallationSchema.parse({ id: "i1" });
+    expect(parsed.status).toBe("revoked");
+    expect(parsed.language).toBe("ja");
+    expect(parsed.webhook_url).toBe("");
+    expect(ListLineInstallationsResponseSchema.parse({})).toEqual({ installations: [], configured: false });
+  });
+
+  it("falls back safely for malformed list, install, and redeem responses", () => {
+    expect(
+      parseWithFallback("not json", ListLineInstallationsResponseSchema, EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE, {
+        endpoint: "GET /api/workspaces/:id/line/installations",
+      }),
+    ).toEqual(EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE);
+    expect(
+      parseWithFallback(42, LineInstallationSchema, EMPTY_LINE_INSTALLATION, {
+        endpoint: "POST /api/workspaces/:id/line/install",
+      }),
+    ).toEqual(EMPTY_LINE_INSTALLATION);
+    expect(
+      parseWithFallback(null, RedeemLineBindingTokenResponseSchema, EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE, {
+        endpoint: "POST /api/line/binding/redeem",
+      }),
+    ).toEqual(EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE);
   });
 });
 

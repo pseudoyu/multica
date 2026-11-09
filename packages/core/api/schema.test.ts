@@ -810,6 +810,53 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
+  describe("LINE integration", () => {
+    it("falls back to a safe empty installation list when the response is malformed", async () => {
+      stubFetchJson({ installations: "not-an-array", configured: true });
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.listLineInstallations("ws-1")).resolves.toEqual({
+        installations: [],
+        configured: false,
+      });
+    });
+
+    it("defaults fields omitted by an older server", async () => {
+      stubFetchJson({
+        installations: [{ id: "line-1", status: "active" }],
+        configured: true,
+      });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.listLineInstallations("ws-1");
+      expect(res.installations[0]).toMatchObject({
+        id: "line-1",
+        bot_user_id: "",
+        channel_id: "",
+        language: "ja",
+        webhook_url: "",
+      });
+      expect(res.install_supported).toBeUndefined();
+    });
+
+    it("falls back safely when register and redeem responses are malformed", async () => {
+      stubFetchJson({ id: 123 });
+      const client = new ApiClient("https://api.example.test");
+      await expect(
+        client.registerLineChannel("ws-1", "agent-1", {
+          channel_id: "1650000000",
+          channel_secret: "secret",
+          language: "ja",
+        }),
+      ).resolves.toMatchObject({ id: "", status: "revoked" });
+
+      stubFetchJson({ workspace_id: 123 });
+      await expect(client.redeemLineBindingToken("bind-token")).resolves.toEqual({
+        workspace_id: "",
+        installation_id: "",
+        line_user_id: "",
+      });
+    });
+  });
+
   describe("listDingTalkGroups", () => {
     it("preserves bot activity metadata for each group relationship", async () => {
       stubFetchJson({

@@ -55,6 +55,9 @@ import type {
   TelegramInstallation,
   ListTelegramInstallationsResponse,
   RedeemTelegramBindingTokenResponse,
+  LineInstallation,
+  ListLineInstallationsResponse,
+  RedeemLineBindingTokenResponse,
   GroupedIssuesResponse,
   GitHubConnectResponse,
   IssuePullRequestsResponse,
@@ -3684,6 +3687,63 @@ export const EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE: RedeemTelegramBinding
   workspace_id: "",
   installation_id: "",
   telegram_user_id: "",
+};
+
+export const LineInstallationSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string().default(""),
+  agent_id: z.string().default(""),
+  bot_user_id: z.string().default(""),
+  channel_id: z.string().default(""),
+  basic_id: z.string().default(""),
+  display_name: z.string().default(""),
+  language: z.string().default("ja"),
+  webhook_url: z.string().default(""),
+  installer_user_id: z.string().default(""),
+  status: z.string().default("revoked"),
+  installed_at: z.string().default(""),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const EMPTY_LINE_INSTALLATION: LineInstallation = {
+  id: "",
+  workspace_id: "",
+  agent_id: "",
+  bot_user_id: "",
+  channel_id: "",
+  basic_id: "",
+  display_name: "",
+  language: "ja",
+  webhook_url: "",
+  installer_user_id: "",
+  status: "revoked",
+  installed_at: "",
+  created_at: "",
+  updated_at: "",
+};
+
+export const ListLineInstallationsResponseSchema = z.object({
+  installations: z.array(LineInstallationSchema).default([]),
+  configured: z.boolean().default(false),
+  install_supported: z.boolean().optional(),
+}).loose();
+
+export const EMPTY_LIST_LINE_INSTALLATIONS_RESPONSE: ListLineInstallationsResponse = {
+  installations: [],
+  configured: false,
+};
+
+export const RedeemLineBindingTokenResponseSchema = z.object({
+  workspace_id: z.string().default(""),
+  installation_id: z.string().default(""),
+  line_user_id: z.string().default(""),
+}).loose();
+
+export const EMPTY_REDEEM_LINE_BINDING_TOKEN_RESPONSE: RedeemLineBindingTokenResponse = {
+  workspace_id: "",
+  installation_id: "",
+  line_user_id: "",
 };
 
 // Skills. Introduced for `POST /api/skills/:id/refresh` (update a skill from
