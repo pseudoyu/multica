@@ -59,8 +59,8 @@ func TestLineInstallationResponseNeverExposesSecret(t *testing.T) {
 	row := db.ChannelInstallation{
 		ID: parseUUID("11111111-1111-1111-1111-111111111111"), WorkspaceID: parseUUID("22222222-2222-2222-2222-222222222222"),
 		AgentID: parseUUID("33333333-3333-3333-3333-333333333333"), InstallerUserID: parseUUID("44444444-4444-4444-4444-444444444444"),
-		Status: "active",
-		Config: json.RawMessage(`{"app_id":"Ubot","channel_id":"1650000000","basic_id":"@abc","display_name":"Multica","channel_secret_encrypted":"ciphertext-sentinel","language":"ja"}`),
+		Status:      "active",
+		Config:      json.RawMessage(`{"app_id":"Ubot","channel_id":"1650000000","basic_id":"@abc","display_name":"Multica","channel_secret_encrypted":"ciphertext-sentinel","language":"ja"}`),
 		InstalledAt: pgtype.Timestamptz{Time: now, Valid: true}, CreatedAt: pgtype.Timestamptz{Time: now, Valid: true}, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
 	}
 	got := (&Handler{}).lineInstallationToResponse(row)

@@ -47,6 +47,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"channel_outbound_card_message":      workspaceDelete,
 	"channel_outbound_message":           workspaceDelete,
 	"channel_reply_delivery":             workspaceDelete,
+	"line_reply_token":                   workspaceDelete,
 	"channel_task_delivery":              workspaceDelete,
 	"channel_typing_reaction":            workspaceDeleteSettle, // Source deletion makes retained anchors eligible for the cleanup worker.
 	"channel_user_binding":               workspaceDelete,

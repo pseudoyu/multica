@@ -1200,6 +1200,9 @@ cleared_dingtalk_group_routes AS (
 cleared_reply_deliveries AS (
     DELETE FROM channel_reply_delivery WHERE installation_id IN (SELECT id FROM doomed)
 ),
+cleared_line_reply_tokens AS (
+    DELETE FROM line_reply_token WHERE installation_id IN (SELECT id FROM doomed)
+),
 cleared_task_deliveries AS (
     DELETE FROM channel_task_delivery WHERE installation_id IN (SELECT id FROM doomed)
 ),
@@ -2701,6 +2704,9 @@ cleared_outbound_messages AS (
 ),
 cleared_reply_deliveries AS (
     DELETE FROM channel_reply_delivery WHERE installation_id IN (SELECT id FROM dead)
+),
+cleared_line_reply_tokens AS (
+    DELETE FROM line_reply_token WHERE installation_id IN (SELECT id FROM dead)
 ),
 cleared_chat_sessions AS (
     DELETE FROM channel_chat_session_binding
