@@ -264,3 +264,43 @@ func TestOutboundPurgesStaleTokens(t *testing.T) {
 		t.Fatalf("purged = %+v", q.purged)
 	}
 }
+
+func failedEvent(retryPending bool) events.Event {
+	return events.Event{
+		Type: protocol.EventTaskFailed, ChatSessionID: testSessionID, TaskID: testTaskID,
+		Payload: map[string]any{"task_id": testTaskID, "chat_session_id": testSessionID, "retry_pending": retryPending, "failure_reason": "agent_error"},
+	}
+}
+
+func TestOutboundSendsFailureNoticeWithoutProvenance(t *testing.T) {
+	o, q, api := newOutboundHarness("p2p")
+	q.token = "rt"
+	if err := o.processEvent(context.Background(), failedEvent(false)); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.calls) != 1 || api.calls[0].kind != "reply" || api.calls[0].msgs[0].Text != textFor(LanguageEnglish).TaskFailed {
+		t.Fatalf("calls = %+v", api.calls)
+	}
+	if len(q.provenance) != 0 || len(q.recordedOut) != 0 {
+		t.Fatal("a failure notice is not the turn's answer")
+	}
+
+	// Pushed notices use their own retry key, distinct from the answer's.
+	o2, _, api2 := newOutboundHarness("p2p")
+	_ = o2.processEvent(context.Background(), failedEvent(false))
+	o3, _, api3 := newOutboundHarness("p2p")
+	_ = o3.processEvent(context.Background(), doneEvent("answer"))
+	if api2.calls[0].kind != "push" || api2.calls[0].retryKey == api3.calls[0].retryKey {
+		t.Fatalf("notice and answer must not share a retry key: %+v / %+v", api2.calls, api3.calls)
+	}
+}
+
+func TestOutboundStaysQuietWhileARetryIsPending(t *testing.T) {
+	o, _, api := newOutboundHarness("p2p")
+	if err := o.processEvent(context.Background(), failedEvent(true)); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.calls) != 0 {
+		t.Fatalf("a pending retry answers the same turn: %+v", api.calls)
+	}
+}

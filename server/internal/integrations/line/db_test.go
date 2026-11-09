@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/multica-ai/multica/server/pkg/dbid"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/dbid"
 )
 
 // testPool backs the tests that run the real line_reply_token and binding
@@ -59,7 +59,9 @@ func TestReplyTokenQueries(t *testing.T) {
 	q := requireDB(t)
 	ctx := context.Background()
 	inst := dbid.NewV7()
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM line_reply_token WHERE installation_id = $1`, inst) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM line_reply_token WHERE installation_id = $1`, inst)
+	})
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	record := func(token string, at time.Time, addressed bool, quote, sender, msgID string) {
@@ -106,7 +108,9 @@ func TestReplyTokenTakenByOnlyOneConcurrentSender(t *testing.T) {
 	q := requireDB(t)
 	ctx := context.Background()
 	inst := dbid.NewV7()
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM line_reply_token WHERE installation_id = $1`, inst) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM line_reply_token WHERE installation_id = $1`, inst)
+	})
 	now := time.Now().UTC()
 	if err := q.RecordLineReplyToken(ctx, db.RecordLineReplyTokenParams{
 		InstallationID: inst, ChatID: "U1", ReplyToken: pgtype.Text{String: "rt", Valid: true}, ReceivedAt: ts(now), Addressed: true,

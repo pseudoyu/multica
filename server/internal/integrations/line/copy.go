@@ -14,6 +14,7 @@ type copyText struct {
 	WorkingOnIt    string
 	AgentOffline   string
 	AgentArchived  string
+	TaskFailed     string
 	Continued      string
 	FreshPending   string
 	ChatStarted    string
@@ -37,6 +38,7 @@ var copies = map[Language]copyText{
 		WorkingOnIt:    "Working on it… I'll send the answer here when it's ready.",
 		AgentOffline:   "The agent is offline right now. Your message was received and will be handled once it's back online.",
 		AgentArchived:  "This agent has been archived and can't respond. Please contact your workspace admin.",
+		TaskFailed:     "The agent run failed. Please try again.",
 		Continued:      "… continued in Multica:",
 		FreshPending:   "Fresh start ready. Your next message will run without previous context.",
 		ChatStarted:    "Started a new Multica chat. Your next message will enter it.",
@@ -56,6 +58,7 @@ var copies = map[Language]copyText{
 		WorkingOnIt:    "対応中です… 回答ができたらここに送ります。",
 		AgentOffline:   "エージェントは現在オフラインです。メッセージは受け付けました。オンラインに戻り次第対応します。",
 		AgentArchived:  "このエージェントはアーカイブされているため応答できません。ワークスペースの管理者に連絡してください。",
+		TaskFailed:     "エージェントの実行に失敗しました。もう一度お試しください。",
 		Continued:      "… 続きは Multica で：",
 		FreshPending:   "新しく始める準備ができました。次のメッセージは以前の文脈なしで実行されます。",
 		ChatStarted:    "Multica で新しいチャットを始めました。次のメッセージはこのチャットに入ります。",
@@ -75,6 +78,7 @@ var copies = map[Language]copyText{
 		WorkingOnIt:    "處理中… 回覆完成後會傳到這裡。",
 		AgentOffline:   "AI 代理目前離線。訊息已收到，恢復上線後就會處理。",
 		AgentArchived:  "這個 AI 代理已封存，無法回覆。請聯絡工作區管理員。",
+		TaskFailed:     "AI 代理執行失敗，請再試一次。",
 		Continued:      "… 在 Multica 繼續閱讀：",
 		FreshPending:   "已準備重新開始。下一則訊息將不帶先前的脈絡執行。",
 		ChatStarted:    "已在 Multica 開始新對話。下一則訊息會進入這個對話。",

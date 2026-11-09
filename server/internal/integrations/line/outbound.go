@@ -69,9 +69,12 @@ func newOutbound(q outboundQueries, decrypt Decrypter, tokens *tokenSource, appU
 	return o
 }
 
-// Register subscribes to chat-done on the bus.
+// Register subscribes to chat-done and task-failed on the bus. A failed run
+// gets a short notice so the chat is not left waiting; a cancelled run says
+// nothing, because whoever cancelled it already knows.
 func (o *Outbound) Register(bus *events.Bus) {
 	bus.Subscribe(protocol.EventChatDone, o.handleEvent)
+	bus.Subscribe(protocol.EventTaskFailed, o.handleEvent)
 }
 
 // Start runs the maintenance loop that purges stale reply tokens. It returns
@@ -136,8 +139,12 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	if err != nil || !sessionID.Valid {
 		return nil
 	}
+	failed := e.Type == protocol.EventTaskFailed
+	if failed && taskFailureRetryPending(e.Payload) {
+		return nil // the retry answers the same turn
+	}
 	content := chatDoneContent(e.Payload)
-	if strings.TrimSpace(content) == "" {
+	if !failed && strings.TrimSpace(content) == "" {
 		return nil
 	}
 	taskID, ok := chatDoneTaskID(e)
@@ -180,20 +187,28 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 		return fmt.Errorf("decode line credentials: %w", err)
 	}
 	chatID := deliveryChatID(delivery)
-	bubbles := buildBubbles(content, textFor(creds.Language).Continued, o.chatURL(ctx, inst.WorkspaceID, sessionID))
+	seed := "task:" + util.UUIDToString(taskID)
+	var bubbles []string
+	if failed {
+		bubbles = []string{textFor(creds.Language).TaskFailed}
+		seed = "task-failed:" + util.UUIDToString(taskID)
+	} else {
+		bubbles = buildBubbles(content, textFor(creds.Language).Continued, o.chatURL(ctx, inst.WorkspaceID, sessionID))
+	}
 	s := &sender{store: o.q, api: o.newAPI(creds), now: o.now, sleep: o.sleep}
 	result, err := s.send(ctx, sendRequest{
 		InstallationID: delivery.InstallationID,
 		ChatID:         chatID,
 		Group:          delivery.ChatType == "group",
 		Bubbles:        bubbles,
-		RetryKeySeed:   "task:" + util.UUIDToString(taskID),
+		RetryKeySeed:   seed,
 		Quote:          true,
 	})
 	if err != nil {
 		return err
 	}
-	if len(result.MessageIDs) == 0 {
+	if failed || len(result.MessageIDs) == 0 {
+		// A failure notice is not the turn's answer: no assistant row to tag.
 		return nil
 	}
 	rows, err := o.q.SetChatMessageChannelOutboundProvenanceByTask(ctx, db.SetChatMessageChannelOutboundProvenanceByTaskParams{
@@ -261,6 +276,15 @@ func chatDoneTaskID(e events.Event) (pgtype.UUID, bool) {
 	}
 	id, err := util.ParseUUID(raw)
 	return id, err == nil && id.Valid
+}
+
+func taskFailureRetryPending(payload any) bool {
+	fields, ok := payload.(map[string]any)
+	if !ok {
+		return false
+	}
+	pending, _ := fields["retry_pending"].(bool)
+	return pending
 }
 
 func chatDoneContent(payload any) string {

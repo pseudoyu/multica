@@ -73,7 +73,7 @@ func TestLanguage(t *testing.T) {
 	}
 	for _, lang := range []Language{LanguageJapanese, LanguageEnglish, LanguageTraditionalChinese} {
 		c := textFor(lang)
-		if c.BindPrompt == "" || c.WorkingOnIt == "" || c.Continued == "" || c.IssueCreated == "" {
+		if c.BindPrompt == "" || c.WorkingOnIt == "" || c.Continued == "" || c.IssueCreated == "" || c.TaskFailed == "" || c.AgentOffline == "" {
 			t.Fatalf("copy for %s is incomplete", lang)
 		}
 	}
