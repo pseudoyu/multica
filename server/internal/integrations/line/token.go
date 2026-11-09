@@ -121,3 +121,14 @@ func (s *tokenSource) mint(ctx context.Context, channelID, channelSecret string)
 	}
 	return out.AccessToken, ttl, nil
 }
+
+// TokenSource is the exported handle the server wiring shares between the
+// LINE install service, webhook, replier, notifier and outbound, so one
+// replica mints at most one token per channel at a time.
+type TokenSource struct{ ts *tokenSource }
+
+// NewTokenSource builds the shared token cache. apiBase "" means
+// DefaultAPIBase; a nil client gets a 10 s timeout.
+func NewTokenSource(httpClient *http.Client, apiBase string) *TokenSource {
+	return &TokenSource{ts: newTokenSource(httpClient, apiBase)}
+}

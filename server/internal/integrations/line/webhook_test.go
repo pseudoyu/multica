@@ -81,7 +81,7 @@ func TestNormalizeMessage(t *testing.T) {
 		Source:  eventSource{Type: "user", UserID: "U1"},
 		Message: &eventMessage{ID: "m1", Type: "text", Text: "  hello  ", QuoteToken: "q"},
 	}
-	msg, ok := normalizeMessage(ev, 1234)
+	msg, ok := normalizeMessage(ev, "Ubot", 1234)
 	if !ok {
 		t.Fatal("text message should normalize")
 	}
@@ -99,7 +99,7 @@ func TestNormalizeMessage(t *testing.T) {
 	room := ev
 	room.Source = eventSource{Type: "room", RoomID: "R1"}
 	room.Message = &eventMessage{ID: "m2", Type: "sticker"}
-	msg, ok = normalizeMessage(room, 0)
+	msg, ok = normalizeMessage(room, "Ubot", 0)
 	if !ok || msg.Source.ChatType != channel.ChatTypeGroup || msg.Source.ChatID != "R1" || msg.Source.SenderID != "" {
 		t.Fatalf("room sticker without consented user: %+v", msg.Source)
 	}
@@ -107,7 +107,7 @@ func TestNormalizeMessage(t *testing.T) {
 		t.Fatalf("sticker should be unknown and unaddressed: %+v", msg)
 	}
 
-	if _, ok := normalizeMessage(webhookEvent{Type: "follow"}, 0); ok {
+	if _, ok := normalizeMessage(webhookEvent{Type: "follow"}, "Ubot", 0); ok {
 		t.Fatal("follow is not a message")
 	}
 	if !json.Valid(msg.Raw) {

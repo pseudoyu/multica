@@ -11,6 +11,7 @@ import (
 // rawEvent is what the adapter stashes in InboundMessage.Raw: the fields the
 // outbound path needs later and the core never reads.
 type rawEvent struct {
+	BotUserID       string `json:"bot_user_id"`
 	EventType       string `json:"event_type"`
 	MessageType     string `json:"message_type,omitempty"`
 	ReplyToken      string `json:"reply_token,omitempty"`
@@ -22,7 +23,7 @@ type rawEvent struct {
 // normalizeMessage maps a LINE message event onto the engine envelope. It
 // returns ok=false for events that are not messages. Non-text messages map to
 // MsgTypeUnknown in phase 1 (media arrives in phase 2).
-func normalizeMessage(ev webhookEvent, receivedAtMs int64) (channel.InboundMessage, bool) {
+func normalizeMessage(ev webhookEvent, botUserID string, receivedAtMs int64) (channel.InboundMessage, bool) {
 	if ev.Type != "message" || ev.Message == nil {
 		return channel.InboundMessage{}, false
 	}
@@ -41,6 +42,7 @@ func normalizeMessage(ev webhookEvent, receivedAtMs int64) (channel.InboundMessa
 	}
 
 	raw, _ := json.Marshal(rawEvent{
+		BotUserID:       botUserID,
 		EventType:       ev.Type,
 		MessageType:     m.Type,
 		ReplyToken:      ev.ReplyToken,
@@ -113,4 +115,9 @@ func decodeRaw(raw json.RawMessage) rawEvent {
 	var r rawEvent
 	_ = json.Unmarshal(raw, &r)
 	return r
+}
+
+func mustRaw(r rawEvent) json.RawMessage {
+	b, _ := json.Marshal(r)
+	return b
 }
