@@ -1,0 +1,129 @@
+---
+title: LINE Bot 接入
+description: 把 Multica 智能体接入 LINE 官方账号，支持私聊、群聊 @ 和 /issue。
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { Step, Steps } from "fumadocs-ui/components/steps";
+
+Multica 使用你创建的 LINE 官方账号的 Messaging API 频道。一个频道对应一个 Multica 智能体；需要多个独立的 LINE 身份时，为每个智能体分别创建官方账号。
+
+<Callout type="info">
+LINE 集成[由社区维护](/community-maintained)：随每个版本发布，但没有官方支持 SLA。遇到问题请提交 [GitHub 任务](https://github.com/multica-ai/multica/issues)。
+</Callout>
+
+## 开始前
+
+- 连接操作需要工作区 owner 或 admin 权限。
+- LINE 只通过 webhook 投递消息，所以 API 服务器需要一个公网 HTTPS 地址，证书由公共 CA 签发（`MULTICA_PUBLIC_URL`）。在 NAT 后面的服务器需要隧道或反向代理。
+- API 服务器必须能够访问 `https://api.line.me`。
+- 创建官方账号需要 LINE Business ID。
+
+## 连接频道
+
+<Steps>
+<Step>
+
+### 创建官方账号 [#1-create-the-official-account]
+
+1. 在 [LINE Official Account Manager](https://manager.line.biz) 中创建一个官方账号。
+2. 打开**设定 → Messaging API**，启用 Messaging API，选择或新建一个 provider。
+3. 在**设定 → 账号设定**中，允许账号加入群组和多人聊天。
+4. 在**设定 → 回应设定**中，关闭自动回应和加好友欢迎消息，只让智能体回答。
+
+</Step>
+<Step>
+
+### 复制频道凭据 [#2-copy-the-channel-credentials]
+
+1. 在 [LINE Developers Console](https://developers.line.biz/console/) 中打开这个频道。
+2. 在 **Basic settings** 页复制 **Channel ID** 和 **Channel secret**。
+3. 在 **Messaging API** 页打开 **Use webhook** 和 **Webhook redelivery**。webhook URL 留空，连接时 Multica 会自动设置。
+
+<Callout type="warning">
+Channel secret 等同于密码。若已泄露，请在 LINE Developers Console 中重新签发，再在 Multica 中重新连接这个频道。
+</Callout>
+
+</Step>
+<Step>
+
+### 连接到智能体 [#3-connect-it-to-an-agent]
+
+1. 在 Multica 中打开 **Agents**，选择一个智能体，进入 **Integrations**。
+2. 点击 **连接 LINE**。
+3. 粘贴 Channel ID 和 Channel secret，选择机器人语言，然后点击 **连接**。
+
+Multica 会用这两项凭据换取一个短期访问令牌来校验它们，读取机器人身份，在 LINE 上设置 webhook URL 并请 LINE 测试一次。密钥加密存储，Multica 从不保存长期访问令牌。已经连接到其他智能体或工作区的频道需要先在那里断开。
+
+机器人语言（日语、英语或繁体中文）用于机器人自己发出的消息，例如账号绑定提示和状态通知，不影响智能体回答所用的语言。
+
+</Step>
+</Steps>
+
+## 第一次使用 [#first-use-and-account-binding]
+
+成员第一次在私聊中给机器人发消息时，会收到一次性的 Multica 账号绑定链接。打开链接，登录同一个 Multica 工作区，然后回到 LINE 再发一次消息。链接 15 分钟后失效，再给机器人发一条消息即可获取新链接。
+
+在群聊中，机器人不会公开发送绑定链接，而是请发送者先私聊它。
+
+只有当前工作区成员可以使用机器人，每条消息都会重新检查成员身份。
+
+## 使用机器人 [#use-the-bot]
+
+### 私聊
+
+把机器人加为好友，直接发送文字，不需要 @。
+
+### 群聊
+
+把机器人拉进群组或多人聊天，然后 @ 它。没有 @ 机器人的消息不会触发智能体；`@All` 不算 @ 机器人。每个群组各自延续一个 Multica 对话。
+
+### 命令
+
+- `/new` 新建一个空的 Multica 对话，此后这个 LINE 会话里的消息都进入新对话。`/new <消息>` 会新建对话并把这条消息作为第一轮。
+- `/clear` 保留当前 Multica 对话，从下一条非空消息开始使用全新的智能体可见上下文。`/clear <消息>` 把这条消息作为上下文边界之后的第一轮。
+- `/issue <标题>` 创建一个 Multica 任务，后续各行作为可选描述。不带标题的 `/issue` 会返回用法说明。
+
+### 回复
+
+LINE 不能编辑已发出的消息，所以回答会一次性完整送达，没有流式输出。智能体工作期间，私聊里会显示 LINE 的加载动画。运行超过 45 秒时，机器人会先发一条简短的「处理中」消息，回答完成后再送达。
+
+回答是纯文本。在群聊中，回答会引用提问并 @ 提问的人。较长的回答最多拆成五条消息，超出部分以一个指向 Multica 中完整回答的链接结尾。
+
+目前 LINE 只处理文字消息。图片、文件、贴图等其他类型在 1:1 聊天中会收到一条简短说明，在群组中会被忽略，都不会转交给智能体。
+
+## 费用
+
+回复消息是免费的，但 LINE 给的 reply token 只有大约一分钟的有效期。耗时更长的回答会以 push 消息发送，而 LINE 按接收人数计算 push：向一个五人群组 push 一次，会从官方账号的每月额度中扣五条。日本的免费方案每月包含 200 条。Multica 把每个回答作为一次请求发出，所以群聊中一个较慢的回答按群成员数计费。额度用完后，LINE 会拒绝后续 push 直到下个月，回答仍保留在 Multica 中。
+
+## 管理连接
+
+打开**设置 → 消息渠道 → LINE** 查看已连接的频道和 Multica 注册的 webhook URL。Owner 和 admin 可以断开连接。断开后机器人停止回复，Multica 中的对话和审计记录会保留。
+
+## 自托管配置 [#self-hosting-setup]
+
+启动 API 服务器前，设置一个稳定的 32 字节加密密钥：
+
+```dotenv
+MULTICA_LINE_SECRET_KEY=<base64 编码的 32 字节密钥>
+MULTICA_PUBLIC_URL=https://multica.example.com
+```
+
+用 `openssl rand -base64 32` 生成密钥，并长期保留：丢失或更换后，已保存的频道密钥将无法读取，需要逐个重新连接频道。
+
+webhook URL 由 `MULTICA_PUBLIC_URL` 生成，必须是 HTTPS。账号绑定链接使用 `MULTICA_APP_URL`，未设置时回退到 `FRONTEND_ORIGIN`。服务器的网络或代理必须允许 HTTPS 访问 `api.line.me`；Go 会读取标准的 `HTTPS_PROXY` 和 `NO_PROXY` 环境变量。
+
+## 常见问题 [#troubleshooting]
+
+- **凭据被拒绝**：重新从 **Basic settings** 复制 Channel ID 和 secret。Channel ID 是一串数字，不是以 `@` 开头的 basic ID。
+- **webhook 测试失败**：确认 `MULTICA_PUBLIC_URL` 是 HTTPS、证书受公共信任，并且能从公网访问。
+- **群里没有回复**：确认机器人允许加入群组、已经在群里，并且消息 @ 了它。
+- **出现意外的自动回复**：在 LINE Official Account Manager 中关闭自动回应和欢迎消息。
+- **回答不再送达**：每月消息额度可能已用完，请在 LINE Official Account Manager 中查看。
+- **绑定链接已过期**：再私聊机器人一条消息，使用最新的链接。
+
+## 接下来
+
+- [聊天工具接入](/channels)：对比各平台，了解会话和身份如何处理。
+- [Chat](/chat)：机器人消息如何变成智能体运行。
+- [任务](/issues)：`/issue` 创建的工作。

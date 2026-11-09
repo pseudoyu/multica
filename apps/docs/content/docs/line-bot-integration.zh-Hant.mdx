@@ -1,0 +1,129 @@
+---
+title: LINE Bot 接入
+description: 把 Multica AI 代理接入 LINE 官方帳號，支援私聊、群聊 @ 和 /issue。
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { Step, Steps } from "fumadocs-ui/components/steps";
+
+Multica 使用你建立的 LINE 官方帳號的 Messaging API 頻道。一個頻道對應一個 Multica AI 代理；需要多個獨立的 LINE 身份時，為每個 AI 代理分別建立官方帳號。
+
+<Callout type="info">
+LINE 整合[由社群維護](/community-maintained)：隨每個版本釋出，但沒有官方支援 SLA。遇到問題請提交 [GitHub 任務](https://github.com/multica-ai/multica/issues)。
+</Callout>
+
+## 開始前
+
+- 連線操作需要工作區 owner 或 admin 權限。
+- LINE 只透過 webhook 投遞訊息，所以 API 伺服器需要一個公開的 HTTPS 位址，憑證由公共 CA 簽發（`MULTICA_PUBLIC_URL`）。位於 NAT 後方的伺服器需要通道或反向代理。
+- API 伺服器必須能夠存取 `https://api.line.me`。
+- 建立官方帳號需要 LINE Business ID。
+
+## 連線頻道
+
+<Steps>
+<Step>
+
+### 建立官方帳號 [#1-create-the-official-account]
+
+1. 在 [LINE Official Account Manager](https://manager.line.biz) 中建立一個官方帳號。
+2. 開啟**設定 → Messaging API**，啟用 Messaging API，選擇或新建一個 provider。
+3. 在**設定 → 帳號設定**中，允許帳號加入群組和多人聊天。
+4. 在**設定 → 回應設定**中，關閉自動回應和加入好友的歡迎訊息，只讓 AI 代理回答。
+
+</Step>
+<Step>
+
+### 複製頻道憑據 [#2-copy-the-channel-credentials]
+
+1. 在 [LINE Developers Console](https://developers.line.biz/console/) 中開啟這個頻道。
+2. 在 **Basic settings** 頁複製 **Channel ID** 和 **Channel secret**。
+3. 在 **Messaging API** 頁開啟 **Use webhook** 和 **Webhook redelivery**。webhook URL 留空，連線時 Multica 會自動設定。
+
+<Callout type="warning">
+Channel secret 等同於密碼。若已外洩，請在 LINE Developers Console 中重新簽發，再在 Multica 中重新連線這個頻道。
+</Callout>
+
+</Step>
+<Step>
+
+### 連線到 AI 代理 [#3-connect-it-to-an-agent]
+
+1. 在 Multica 中開啟 **Agents**，選擇一個 AI 代理，進入 **Integrations**。
+2. 點選 **連線 LINE**。
+3. 貼上 Channel ID 和 Channel secret，選擇機器人語言，然後點選 **連線**。
+
+Multica 會用這兩項憑據換取一個短期存取權杖來校驗它們，讀取機器人身份，在 LINE 上設定 webhook URL 並請 LINE 測試一次。密鑰加密儲存，Multica 從不保存長期存取權杖。已經連線到其他 AI 代理或工作區的頻道需要先在那裡中斷。
+
+機器人語言（日語、英語或繁體中文）用於機器人自己發出的訊息，例如帳號繫結提示和狀態通知，不影響 AI 代理回答所用的語言。
+
+</Step>
+</Steps>
+
+## 第一次使用 [#first-use-and-account-binding]
+
+成員第一次在私聊中傳訊息給機器人時，會收到一次性的 Multica 帳號繫結連結。開啟連結，登入同一個 Multica 工作區，然後回到 LINE 再傳一次訊息。連結 15 分鐘後失效，再傳一則訊息給機器人即可取得新連結。
+
+在群聊中，機器人不會公開傳送繫結連結，而是請傳送者先私聊它。
+
+只有目前工作區成員可以使用機器人，每則訊息都會重新檢查成員身份。
+
+## 使用機器人 [#use-the-bot]
+
+### 私聊
+
+把機器人加為好友，直接傳送文字，不需要 @。
+
+### 群聊
+
+把機器人邀請進群組或多人聊天，然後 @ 它。沒有 @ 機器人的訊息不會觸發 AI 代理；`@All` 不算 @ 機器人。每個群組各自延續一個 Multica 對話。
+
+### 命令
+
+- `/new` 新建一個空的 Multica 對話，此後這個 LINE 對話裡的訊息都進入新對話。`/new <訊息>` 會新建對話並把這則訊息作為第一輪。
+- `/clear` 保留目前的 Multica 對話，從下一則非空訊息開始使用全新的 AI 代理可見脈絡。`/clear <訊息>` 把這則訊息作為脈絡邊界之後的第一輪。
+- `/issue <標題>` 建立一個 Multica 任務，後續各行作為選填描述。不帶標題的 `/issue` 會回傳用法說明。
+
+### 回覆
+
+LINE 不能編輯已送出的訊息，所以回答會一次完整送達，沒有串流輸出。AI 代理工作期間，私聊裡會顯示 LINE 的載入動畫。執行超過 45 秒時，機器人會先傳一則簡短的「處理中」訊息，回答完成後再送達。
+
+回答是純文字。在群聊中，回答會引用提問並 @ 提問的人。較長的回答最多拆成五則訊息，超出部分以一個指向 Multica 中完整回答的連結結尾。
+
+目前 LINE 只處理文字訊息。圖片、檔案、貼圖等其他類型在 1 對 1 聊天中會收到一則簡短說明，在群組中會被忽略，都不會轉交給 AI 代理。
+
+## 費用
+
+回覆訊息是免費的，但 LINE 給的 reply token 只有大約一分鐘的有效期。耗時更長的回答會以 push 訊息傳送，而 LINE 按接收人數計算 push：對一個五人群組 push 一次，會從官方帳號的每月額度中扣五則。日本的免費方案每月包含 200 則。Multica 把每個回答作為一次請求送出，所以群聊中一個較慢的回答按群組成員數計費。額度用完後，LINE 會拒絕後續 push 直到下個月，回答仍保留在 Multica 中。
+
+## 管理連線
+
+開啟**設定 → 訊息渠道 → LINE** 查看已連線的頻道和 Multica 註冊的 webhook URL。Owner 和 admin 可以中斷連線。中斷後機器人停止回覆，Multica 中的對話和稽核紀錄會保留。
+
+## 自託管配置 [#self-hosting-setup]
+
+啟動 API 伺服器前，設定一個穩定的 32 位元組加密金鑰：
+
+```dotenv
+MULTICA_LINE_SECRET_KEY=<base64 編碼的 32 位元組金鑰>
+MULTICA_PUBLIC_URL=https://multica.example.com
+```
+
+用 `openssl rand -base64 32` 產生金鑰，並長期保留：遺失或更換後，已保存的頻道密鑰將無法讀取，需要逐一重新連線頻道。
+
+webhook URL 由 `MULTICA_PUBLIC_URL` 產生，必須是 HTTPS。帳號繫結連結使用 `MULTICA_APP_URL`，未設定時退回 `FRONTEND_ORIGIN`。伺服器的網路或代理必須允許 HTTPS 存取 `api.line.me`；Go 會讀取標準的 `HTTPS_PROXY` 和 `NO_PROXY` 環境變數。
+
+## 常見問題 [#troubleshooting]
+
+- **憑據被拒絕**：重新從 **Basic settings** 複製 Channel ID 和 secret。Channel ID 是一串數字，不是以 `@` 開頭的 basic ID。
+- **webhook 測試失敗**：確認 `MULTICA_PUBLIC_URL` 是 HTTPS、憑證受公共信任，並且能從網際網路存取。
+- **群裡沒有回覆**：確認機器人允許加入群組、已經在群裡，並且訊息 @ 了它。
+- **出現意外的自動回覆**：在 LINE Official Account Manager 中關閉自動回應和歡迎訊息。
+- **回答不再送達**：每月訊息額度可能已用完，請在 LINE Official Account Manager 中查看。
+- **繫結連結已過期**：再私聊機器人一則訊息，使用最新的連結。
+
+## 接下來
+
+- [聊天工具接入](/channels)：比較各平臺，了解對話和身份如何處理。
+- [Chat](/chat)：機器人訊息如何變成 AI 代理執行。
+- [任務](/issues)：`/issue` 建立的工作。

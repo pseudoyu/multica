@@ -1,0 +1,129 @@
+---
+title: LINE Bot
+description: Connect a Multica agent to a LINE Official Account for 1:1 chats, group mentions, and /issue.
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { Step, Steps } from "fumadocs-ui/components/steps";
+
+Multica uses the Messaging API channel of a LINE Official Account that you create. One channel maps to one Multica agent. Create a separate Official Account for each agent that needs its own LINE identity.
+
+<Callout type="info">
+LINE support is [community-maintained](/community-maintained): it ships in every release, but carries no official support SLA. Report problems in [GitHub issues](https://github.com/multica-ai/multica/issues).
+</Callout>
+
+## Before you start
+
+- A Multica workspace owner or admin must connect the channel.
+- LINE delivers messages only by webhook, so the API server needs a public HTTPS address with a certificate from a public CA (`MULTICA_PUBLIC_URL`). A server behind NAT needs a tunnel or reverse proxy.
+- The API server must be able to reach `https://api.line.me`.
+- You need a LINE Business ID to create the Official Account.
+
+## Connect the channel
+
+<Steps>
+<Step>
+
+### Create the Official Account [#1-create-the-official-account]
+
+1. In [LINE Official Account Manager](https://manager.line.biz), create an Official Account.
+2. Open **Settings → Messaging API** and enable the Messaging API. Choose or create a provider.
+3. In **Settings → Account settings**, allow the account to join group chats and multi-person chats.
+4. In **Settings → Response settings**, turn off auto-reply and greeting messages, so only the agent answers.
+
+</Step>
+<Step>
+
+### Copy the channel credentials [#2-copy-the-channel-credentials]
+
+1. Open the channel in the [LINE Developers Console](https://developers.line.biz/console/).
+2. On **Basic settings**, copy the **Channel ID** and the **Channel secret**.
+3. On **Messaging API**, turn on **Use webhook** and **Webhook redelivery**. Leave the webhook URL empty: Multica sets it when you connect.
+
+<Callout type="warning">
+Treat the channel secret as a password. If it is exposed, reissue it in the LINE Developers Console, then reconnect the channel in Multica.
+</Callout>
+
+</Step>
+<Step>
+
+### Connect it to an agent [#3-connect-it-to-an-agent]
+
+1. In Multica, open **Agents**, select an agent, and open **Integrations**.
+2. Click **Connect LINE**.
+3. Paste the channel ID and channel secret, choose the bot language, and click **Connect**.
+
+Multica mints a short-lived access token from the credentials to verify them, reads the bot's identity, sets the webhook URL on LINE, and asks LINE to test it. It stores the secret encrypted and never stores a long-lived access token. A channel already connected to another agent or workspace must be disconnected there first.
+
+The bot language (Japanese, English, or Traditional Chinese) is used for the bot's own messages, such as the binding prompt and status notices. It does not change the language the agent answers in.
+
+</Step>
+</Steps>
+
+## First use [#first-use-and-account-binding]
+
+The first time a member messages the bot in a 1:1 chat, it sends a single-use Multica account-binding link. Open it, sign in to the same Multica workspace, then return to LINE and send the message again. The link expires after 15 minutes; message the bot again to get a new link.
+
+In a group, the bot never posts the link publicly. It asks the sender to message it 1:1 first.
+
+Only current workspace members can use the bot. Membership is checked again for every message.
+
+## Use the bot
+
+### 1:1 chats
+
+Add the bot as a friend and send text directly. No mention is required.
+
+### Groups
+
+Invite the bot to a group or multi-person chat, then @-mention it. Messages that don't mention the bot never trigger the agent; `@All` does not count as a mention. Each group continues its own Multica chat.
+
+### Commands
+
+- `/new` creates a new empty Multica Chat and routes later messages in the LINE conversation to it. `/new <message>` creates the Chat with that message as its first turn.
+- `/clear` keeps the current Multica Chat and applies a fresh agent-visible context to the next non-empty message. `/clear <message>` uses that message as the first turn after the context boundary.
+- `/issue <title>` creates a Multica issue; following lines are used as its optional description. `/issue` without a title returns usage guidance.
+
+### Replies
+
+LINE cannot edit a message that has been sent, so answers arrive whole instead of streaming. While the agent works, a 1:1 chat shows LINE's loading animation. If a run is still going after 45 seconds, the bot sends a short "working on it" message, and the answer follows when it is ready.
+
+Answers are plain text. In groups, the answer quotes the question and mentions the person who asked. A long answer is split into at most five messages; anything beyond that ends with a link to the full answer in Multica.
+
+LINE handles text messages today. Images, files, stickers, and other message types get a short reply saying so in a 1:1 chat and are ignored in groups. They are not passed to the agent.
+
+## Cost
+
+Replies to a message are free, but LINE gives a reply token only about a minute of life. An answer that takes longer is sent as a push message, and LINE counts a push once per recipient: a push to a group of five counts five messages against the Official Account's monthly quota. The free plan in Japan includes 200 messages a month. Multica sends each answer as one request, so a slow answer in a group costs one message per member. When the quota runs out, LINE refuses further pushes until the next month; the answers stay in Multica.
+
+## Manage connections
+
+Open **Settings → Messaging → LINE** to view connected channels and the webhook URL Multica registered. Owners and admins can disconnect one. Disconnecting stops replies but preserves Multica conversations and audit records.
+
+## Self-hosting setup
+
+Set a stable 32-byte encryption key before starting the API server:
+
+```dotenv
+MULTICA_LINE_SECRET_KEY=<base64-encoded 32-byte key>
+MULTICA_PUBLIC_URL=https://multica.example.com
+```
+
+Generate the key with `openssl rand -base64 32`. Keep it long-term: losing or rotating it makes stored channel secrets unreadable and requires reconnecting each channel.
+
+The webhook URL is built from `MULTICA_PUBLIC_URL`, which must use HTTPS. Binding links use `MULTICA_APP_URL`, falling back to `FRONTEND_ORIGIN`. The server's network or proxy must allow HTTPS access to `api.line.me`; Go honors standard `HTTPS_PROXY` and `NO_PROXY` environment variables.
+
+## Troubleshooting
+
+- **Credentials rejected**: copy the channel ID and secret again from **Basic settings**. The channel ID is a number, not the `@` basic ID.
+- **Webhook test failed**: check that `MULTICA_PUBLIC_URL` is HTTPS with a publicly trusted certificate and reachable from the internet.
+- **No group reply**: confirm the bot may join groups, is in the group, and the message @-mentions it.
+- **Unexpected automatic replies**: turn off auto-reply and greeting messages in LINE Official Account Manager.
+- **Answers stop arriving**: the monthly message quota may be used up; check it in LINE Official Account Manager.
+- **Binding link expired**: send the bot another 1:1 message and use the newest link.
+
+## Next steps
+
+- [Chat integrations](/channels) — compare platforms and understand session and identity handling.
+- [Chat](/chat) — how bot messages become agent runs.
+- [Issues](/issues) — the work created by `/issue`.

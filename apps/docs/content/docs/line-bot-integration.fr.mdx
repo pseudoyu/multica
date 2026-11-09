@@ -1,0 +1,129 @@
+---
+title: Bot LINE
+description: Connectez un agent Multica à un compte officiel LINE pour les conversations privées, les mentions dans les groupes et /issue.
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { Step, Steps } from "fumadocs-ui/components/steps";
+
+Multica utilise le canal Messaging API d'un compte officiel LINE que vous créez. Un canal correspond à un agent Multica. Créez un compte officiel distinct pour chaque agent qui a besoin de sa propre identité LINE.
+
+<Callout type="info">
+L'intégration LINE est [maintenue par la communauté](/community-maintained) : elle est incluse dans chaque version, mais sans SLA de support officiel. Signalez les problèmes dans les [issues GitHub](https://github.com/multica-ai/multica/issues).
+</Callout>
+
+## Avant de commencer
+
+- La connexion du canal est réservée aux owners et admins de l'espace de travail.
+- LINE ne livre les messages que par webhook : le serveur d'API a besoin d'une adresse HTTPS publique avec un certificat d'une autorité publique (`MULTICA_PUBLIC_URL`). Un serveur derrière un NAT a besoin d'un tunnel ou d'un reverse proxy.
+- Le serveur d'API doit pouvoir joindre `https://api.line.me`.
+- La création du compte officiel nécessite un LINE Business ID.
+
+## Connecter le canal
+
+<Steps>
+<Step>
+
+### Créer le compte officiel [#1-create-the-official-account]
+
+1. Dans [LINE Official Account Manager](https://manager.line.biz), créez un compte officiel.
+2. Ouvrez **Paramètres → Messaging API** et activez la Messaging API. Choisissez ou créez un provider.
+3. Dans **Paramètres → Paramètres du compte**, autorisez le compte à rejoindre les groupes et les discussions à plusieurs.
+4. Dans **Paramètres → Paramètres de réponse**, désactivez les réponses automatiques et le message de bienvenue, pour que seul l'agent réponde.
+
+</Step>
+<Step>
+
+### Copier les identifiants du canal [#2-copy-the-channel-credentials]
+
+1. Ouvrez le canal dans la [LINE Developers Console](https://developers.line.biz/console/).
+2. Dans **Basic settings**, copiez le **Channel ID** et le **Channel secret**.
+3. Dans **Messaging API**, activez **Use webhook** et **Webhook redelivery**. Laissez l'URL du webhook vide : Multica la définit lors de la connexion.
+
+<Callout type="warning">
+Traitez le channel secret comme un mot de passe. S'il est exposé, régénérez-le dans la LINE Developers Console, puis reconnectez le canal dans Multica.
+</Callout>
+
+</Step>
+<Step>
+
+### Le connecter à un agent [#3-connect-it-to-an-agent]
+
+1. Dans Multica, ouvrez **Agents**, sélectionnez un agent et ouvrez **Integrations**.
+2. Cliquez sur **Connecter LINE**.
+3. Collez le Channel ID et le Channel secret, choisissez la langue du bot, puis cliquez sur **Connecter**.
+
+Multica obtient un jeton d'accès de courte durée à partir des identifiants pour les vérifier, lit l'identité du bot, définit l'URL du webhook sur LINE et demande à LINE de la tester. Le secret est stocké chiffré, et aucun jeton d'accès de longue durée n'est conservé. Un canal déjà connecté à un autre agent ou espace de travail doit d'abord y être déconnecté.
+
+La langue du bot (japonais, anglais ou chinois traditionnel) sert aux messages propres au bot, comme l'invitation à lier le compte et les notifications d'état. Elle ne change pas la langue dans laquelle l'agent répond.
+
+</Step>
+</Steps>
+
+## Première utilisation [#first-use-and-account-binding]
+
+La première fois qu'un membre écrit au bot en conversation privée, il reçoit un lien de liaison de compte Multica à usage unique. Ouvrez-le, connectez-vous au même espace de travail Multica, puis revenez dans LINE et renvoyez le message. Le lien expire au bout de 15 minutes ; écrivez de nouveau au bot pour en obtenir un nouveau.
+
+Dans un groupe, le bot ne publie jamais le lien. Il demande à l'expéditeur de lui écrire d'abord en privé.
+
+Seuls les membres actuels de l'espace de travail peuvent utiliser le bot. L'appartenance est vérifiée à chaque message.
+
+## Utiliser le bot [#use-the-bot]
+
+### Conversations privées
+
+Ajoutez le bot en ami et envoyez directement du texte. Aucune mention n'est nécessaire.
+
+### Groupes
+
+Invitez le bot dans un groupe ou une discussion à plusieurs, puis @mentionnez-le. Les messages qui ne mentionnent pas le bot ne déclenchent jamais l'agent ; `@All` ne compte pas comme une mention. Chaque groupe poursuit sa propre conversation Multica.
+
+### Commandes
+
+- `/new` crée une nouvelle conversation Multica vide et y dirige les messages suivants de la conversation LINE. `/new <message>` crée la conversation avec ce message comme premier tour.
+- `/clear` conserve la conversation Multica actuelle et applique un nouveau contexte visible par l'agent au prochain message non vide. `/clear <message>` utilise ce message comme premier tour après la limite de contexte.
+- `/issue <titre>` crée une tâche Multica ; les lignes suivantes servent de description facultative. `/issue` sans titre renvoie l'aide d'utilisation.
+
+### Réponses
+
+LINE ne permet pas de modifier un message envoyé : les réponses arrivent entières, sans streaming. Pendant que l'agent travaille, une conversation privée affiche l'animation de chargement de LINE. Si une exécution dure plus de 45 secondes, le bot envoie d'abord un court message « en cours », puis la réponse dès qu'elle est prête.
+
+Les réponses sont en texte brut. Dans un groupe, la réponse cite la question et mentionne la personne qui l'a posée. Une longue réponse est découpée en cinq messages au plus ; au-delà, elle se termine par un lien vers la réponse complète dans Multica.
+
+LINE ne traite que les messages texte pour le moment. Les images, fichiers, stickers et autres types reçoivent une courte réponse le signalant dans une discussion 1:1 et sont ignorés dans les groupes. Ils ne sont pas transmis à l'agent.
+
+## Coût
+
+Répondre à un message est gratuit, mais le reply token de LINE n'est valable qu'environ une minute. Une réponse plus longue à produire est envoyée en push, et LINE compte un push une fois par destinataire : un push vers un groupe de cinq personnes compte cinq messages sur le quota mensuel du compte officiel. Le forfait gratuit au Japon inclut 200 messages par mois. Multica envoie chaque réponse en une seule requête : une réponse lente dans un groupe coûte donc un message par membre. Quand le quota est épuisé, LINE refuse les push suivants jusqu'au mois suivant ; les réponses restent dans Multica.
+
+## Gérer les connexions
+
+Ouvrez **Paramètres → Messagerie → LINE** pour voir les canaux connectés et l'URL de webhook enregistrée par Multica. Les owners et admins peuvent en déconnecter un. La déconnexion arrête les réponses mais conserve les conversations Multica et les journaux d'audit.
+
+## Configuration en auto-hébergement [#self-hosting-setup]
+
+Définissez une clé de chiffrement stable de 32 octets avant de démarrer le serveur d'API :
+
+```dotenv
+MULTICA_LINE_SECRET_KEY=<base64-encoded 32-byte key>
+MULTICA_PUBLIC_URL=https://multica.example.com
+```
+
+Générez la clé avec `openssl rand -base64 32` et conservez-la durablement : la perdre ou la changer rend illisibles les channel secrets enregistrés et oblige à reconnecter chaque canal.
+
+L'URL du webhook est construite à partir de `MULTICA_PUBLIC_URL`, qui doit utiliser HTTPS. Les liens de liaison utilisent `MULTICA_APP_URL`, ou `FRONTEND_ORIGIN` à défaut. Le réseau ou le proxy du serveur doit autoriser l'accès HTTPS à `api.line.me` ; Go respecte les variables d'environnement standard `HTTPS_PROXY` et `NO_PROXY`.
+
+## Dépannage [#troubleshooting]
+
+- **Identifiants refusés** : recopiez le Channel ID et le secret depuis **Basic settings**. Le Channel ID est un nombre, pas le basic ID qui commence par `@`.
+- **Échec du test du webhook** : vérifiez que `MULTICA_PUBLIC_URL` utilise HTTPS avec un certificat reconnu publiquement et qu'elle est joignable depuis Internet.
+- **Pas de réponse dans un groupe** : vérifiez que le bot peut rejoindre les groupes, qu'il est dans le groupe et que le message le mentionne.
+- **Réponses automatiques inattendues** : désactivez les réponses automatiques et le message de bienvenue dans LINE Official Account Manager.
+- **Les réponses n'arrivent plus** : le quota mensuel de messages est peut-être épuisé ; vérifiez-le dans LINE Official Account Manager.
+- **Lien de liaison expiré** : écrivez de nouveau au bot en privé et utilisez le lien le plus récent.
+
+## Étapes suivantes
+
+- [Intégrations de messagerie](/channels) — comparer les plateformes et comprendre la gestion des sessions et des identités.
+- [Chat](/chat) — comment les messages du bot deviennent des exécutions d'agent.
+- [Tâches](/issues) — le travail créé par `/issue`.

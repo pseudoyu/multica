@@ -230,6 +230,11 @@ services:
       # (bot_token_encrypted), so this single deployment-wide key is all
       # the operator needs to set here.
       MULTICA_TELEGRAM_SECRET_KEY: ${MULTICA_TELEGRAM_SECRET_KEY:-}
+      # LINE Messaging API integration. MULTICA_LINE_SECRET_KEY is the
+      # opt-in: unset = integration disabled. It decrypts the per-installation
+      # channel secret stored in channel_installation.config. LINE delivers
+      # webhooks only, so MULTICA_PUBLIC_URL must be a public HTTPS address.
+      MULTICA_LINE_SECRET_KEY: ${MULTICA_LINE_SECRET_KEY:-}
     restart: unless-stopped
 
   frontend:
