@@ -1,6 +1,6 @@
 # LINE channel integration: research and design
 
-Status: proposal, not implemented. Written 2026-11-09 against `upstream/main`
+Status: approved 2026-11-10 (section 12), implementation in progress. Written 2026-11-09 against `upstream/main`
 at `78dd3a2ae`. LINE facts were read from developers.line.biz on 2026-11-09;
 LINE pages carry no "last updated" date, so each fact cites the page it came
 from and the read date stands in for it.
@@ -20,7 +20,7 @@ chat-session routing, dedup, `/new` and `/issue`, the media pipeline and
 the reply-or-push choice, streaming degradation (LINE cannot edit a sent
 message), plain-text rendering and cost control.
 
-Recommended shape:
+Decided shape:
 
 - An admin pastes the LINE channel ID and channel secret. Multica mints
   15-minute stateless access tokens from them, so no long-lived token is stored.
@@ -189,8 +189,8 @@ signature check on the standard library. The SDK is not added as a dependency.
   lobehub).
 - The bot ID taken from `/v2/bot/info`, because the console's "Your user ID"
   is the operator's own ID (lobehub).
-- The idea of a slow-answer button (Hermes), offered as decision
-  `line-slow-answer`.
+- The idea of a slow-answer button (Hermes), adapted as the phase 2
+  "Show progress" button (decision `line-slow-answer`).
 
 **Rejected:**
 
@@ -507,7 +507,7 @@ live edits, and it costs nothing.
 | Media out | Upload bytes | Image by presigned URL; files as links | New |
 | Cost | Free | Per recipient per push | New controls |
 | `/issue` origin | `telegram_chat` | `line_chat` | Same migration pattern |
-| Copy language | English | See decision `line-copy-language` | |
+| Copy language | English | `ja`, `en` or `zh-Hant`, chosen per installation, default `ja` | New per-installation setting |
 
 ### 4.8 Getting as close to Telegram as LINE allows
 
@@ -528,7 +528,7 @@ live edits, and it costs nothing.
 | Files, video and audio out | Links | 2 | LINE bots cannot send files |
 | `/new`, `/issue` | Same commands; quick replies and a default rich menu for New chat / Open Multica | 1, menu 3 | None; LINE's menu is better than typing |
 | Quoted file attached for the agent | Not available: LINE gives `quotedMessageId` but no API returns the quoted content | — | Only files already seen by the bot (phase 2 media rows) can be matched |
-| No public URL needed | Public HTTPS webhook | 1 | Our fleet already serves HTTPS behind Caddy |
+| No public URL needed | Public HTTPS webhook | 1 | Self-hosters behind NAT need a tunnel or reverse proxy (section 10) |
 
 ## 5. Configuration, data model and migrations
 
@@ -551,7 +551,7 @@ Self-host compose and Helm pass-through follow the Telegram and DingTalk fixes
   "basic_id": "@123abcde",
   "display_name": "Multica",
   "channel_secret_encrypted": "base64 secretbox",
-  "language": "ja"               // see decision line-copy-language
+  "language": "ja"               // ja | en | zh-Hant, chosen at install, default ja
 }
 ```
 
@@ -655,8 +655,8 @@ needs checking before release.
 - `apps/docs/content/docs/line-bot-integration.{mdx,zh,ja,ko,fr,zh-Hant}.mdx`:
   setup, cost warning, groups, limits.
 - Rows in `channels`, `environment-variables` and `meta*.json`.
-- A `community-maintained` row if upstream treats LINE like Telegram (decision
-  `line-upstream`).
+- A `community-maintained` row for LINE with @pseudoyu as maintainer
+  (decision `line-upstream`).
 
 ## 7. Security
 
@@ -751,7 +751,7 @@ public route, but no new service.
 | 2 s webhook deadline under database load | LINE logs timeouts; without redelivery those messages are lost | Handle per event in order with a 1.5 s budget; docs require redelivery; dedup absorbs replays |
 | Presigned image URLs expire | Old images may stop rendering in LINE | 7-day TTL; links for everything else |
 | Event types appear without notice | A strict parser would 4xx and LINE would mark errors | Unknown types are ignored with a debug audit |
-| Upstream acceptance and maintenance | A new integration becomes community-maintained with a named maintainer | Decision `line-upstream` |
+| Upstream acceptance and maintenance | A new integration becomes community-maintained with a named maintainer | Proposal issue first; the area is community-maintained with @pseudoyu as maintainer (decision `line-upstream`) |
 | `line` slug collision | A workspace named `line` would shadow or be shadowed | Check before release |
 
 ## 11. Not in scope
@@ -765,18 +765,16 @@ public route, but no new service.
 - Native video and audio out.
 - Sending files (LINE has no API for it).
 
-## 12. Open decisions
+## 12. Decisions
 
-Each has a recommendation. Nothing here blocks writing phase 1 except
-`line-upstream` (it decides where the code lands) and `line-test-channel` (it
-gates the end-to-end check).
+All seven were decided on 2026-11-10, each on the first option proposed.
 
-| Key | Question | Options (recommended first) |
-|---|---|---|
-| `line-upstream` | Where does LINE land? | (a) Upstream: open a proposal issue on `multica-ai/multica` with this design, then PRs from the fork. The area becomes community-maintained with Yu as maintainer. (b) The private mirror `oaku-ai/multica` only. (c) Build in the mirror first, upstream later. |
-| `line-credentials` | What does the admin paste? | (a) Channel ID + channel secret; Multica mints 15-minute stateless tokens. (b) Channel secret + long-lived access token, as most other projects do. |
-| `line-slow-answer` | What does the chat see while a run takes over a minute? | (a) At 45 s a free "Working on it…" reply with a "Show progress" button; each tap replies, free, with the answer so far and refreshes the reply token (section 4.4; the plain notice ships in phase 1, the button in phase 2). (b) Only the plain notice; the answer by push. (c) Hermes-style "Get the answer" button that holds the answer until tapped. (d) Nothing until the push. |
-| `line-group-context` | Decided 2026-11-10: (a). Inline recent group messages when the bot is mentioned, as Telegram does. | (a) Chosen: keep the last 20 messages per group for at most 30 minutes in `line_group_recent`, purged by the maintenance job, used only to build the mention's context (section 4.2). (b) Not chosen: mentions carry only their own text and any quoted message. |
-| `line-copy-language` | Bot copy language (binding prompt, notices)? | (a) Chosen per installation at install: `ja`, `en` or `zh-Hant`, default `ja`. (b) English only, like Telegram. (c) Japanese only. |
-| `line-phase1-scope` | Do groups ship in phase 1? | (a) Yes, 1:1 and groups (Telegram shipped both). (b) 1:1 first, groups in a later phase. |
-| `line-test-channel` | Who creates the LINE test Official Account and channel (needs a LINE Business ID), and where does the public-HTTPS staging backend run? | (a) Yu creates a test provider and channel and passes channel ID and secret privately; staging runs on ovh behind its existing HTTPS proxy. (b) Use an existing branded instance as staging. |
+| Key | Question | Decision | Not chosen |
+|---|---|---|---|
+| `line-upstream` | Where does LINE land? | Upstream: a proposal issue on `multica-ai/multica` with this design, then PRs from the fork. The area is community-maintained with @pseudoyu as maintainer. | The private mirror only; the mirror first and upstream later. |
+| `line-credentials` | What does the admin paste? | Channel ID and channel secret. Multica mints 15-minute stateless tokens and never stores a long-lived token. | Channel secret plus a long-lived access token. |
+| `line-slow-answer` | What does the chat see while a run takes over a minute? | At 45 s a free "Working on it…" reply spends the expiring reply token, and the answer then goes by push (phase 1). Phase 2 adds the "Show progress" button (section 4.4). | Hermes-style "Get the answer" button that holds the answer; nothing until the push. |
+| `line-group-context` | Inline recent group messages when the bot is mentioned? | Yes: the last 20 messages per group, at most 30 minutes old, in `line_group_recent`, purged by the maintenance job, used only to build the mention's context (section 4.2). | Only the mention's own text and any quoted message. |
+| `line-copy-language` | Bot copy language (binding prompt, notices)? | Chosen per installation at install: `ja`, `en` or `zh-Hant`, default `ja`. | English only; Japanese only. |
+| `line-phase1-scope` | Do groups ship in phase 1? | Yes, 1:1 and groups together. | 1:1 first, groups later. |
+| `line-test-channel` | Who creates the test channel, and where does staging run? | A test provider and Messaging API channel created by the maintainer, whose channel ID and secret are passed privately; the public-HTTPS staging backend runs behind an existing HTTPS reverse proxy. Unit tests and the rest of phase 1 do not wait for it. | An existing production instance as staging. |
