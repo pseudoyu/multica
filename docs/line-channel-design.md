@@ -283,7 +283,8 @@ Other events use `webhookEventId`.
 | `message` sticker, location | Phase 1: unsupported notice in 1:1; ignored in groups unless addressed. |
 | `follow` | Reply with the binding prompt if the user is unbound, else a one-line hello. Free (reply token). |
 | `join` (group/room) | Reply once with how to address the bot (@mention). Free. |
-| `unfollow`, `leave`, `memberJoined`, `memberLeft`, `unsend`, `messageEdited`, `postback`, `membership`, unknown types | Audit at debug level and ignore. LINE adds event types without notice, so an unknown type is never an error. |
+| `unsend` | Phase 3: delete the message's row from `line_group_recent`. Before that, audit and ignore like the row below. |
+| `unfollow`, `leave`, `memberJoined`, `memberLeft`, `messageEdited`, `postback`, `membership`, unknown types | Audit at debug level and ignore. LINE adds event types without notice, so an unknown type is never an error. |
 | `mode: standby` | Ignore; LINE says a standby channel must not send. |
 
 **Normalization.** Map onto the existing envelope:
@@ -310,10 +311,34 @@ A reply-to-bot trigger (Telegram's second rule) needs `quotedMessageId`
 matched against IDs the bot sent. It comes in phase 2: every `sentMessages[].id`
 is recorded in `line_sent_message`.
 
-Telegram's recent-context buffer comes in phase 3, if decision
-`line-group-context` approves it. An in-memory buffer only sees the share of a
-group's webhooks that land on its own replica, so it has to be a short-lived
-database buffer, which stores unaddressed group messages.
+**Recent group context (phase 3, decision `line-group-context`: yes).** When
+the bot is mentioned in a group, the messages just before the mention are
+inlined ahead of it, as Telegram and Lark do. LINE has no history endpoint, and
+an in-memory ring like Telegram's would only see the share of a group's
+webhooks that land on its own replica, so the buffer is the small database
+table `line_group_recent` (section 5). It exists only to build that context.
+
+- **Write.** Every group message, addressed or not, is inserted before the
+  unaddressed ones are dropped. Text is cut at 1,000 runes, as Telegram does;
+  stickers, images and other non-text messages are stored as a placeholder such
+  as `[sticker]`. The insert also deletes that group's rows beyond the newest
+  20, so a group never holds more than 20.
+- **Expiry.** Rows older than 30 minutes are never read (the read filters on
+  `created_at`), and a maintenance job deletes them every 5 minutes. An
+  `unsend` event deletes the matching row at once.
+- **Read.** On a mention, the up to 20 newest rows from the last 30 minutes
+  for that group, minus the mention itself, become a
+  `<recent_context count="N">` block of `[<speaker>]: <text>` lines, oldest
+  first, the same format as Telegram and Lark.
+- **Speaker names.** Rows store the `userId` only. Names are resolved when the
+  block is built, through the group member profile API with a per-replica
+  cache, under a 300 ms cap inside the 1.5 s budget. A user who has not
+  consented to share their ID, a failed lookup and a timeout all show as
+  `Unknown user`.
+- **Retention.** Unaddressed chatter is kept only in this buffer. Once a
+  mention pulls it into its block, it is persisted with that turn as part of
+  `chat_message.content`, the same contract Telegram documents for its ring.
+  The admin docs say the bot briefly keeps recent group messages for this.
 
 ### 4.3 Identity binding
 
@@ -469,7 +494,7 @@ live edits, and it costs nothing.
 | User binding | `/telegram/bind` token | `/line/bind` token | Reused flow |
 | Dedup | `message_id` | `message.id`, else `webhookEventId` | Reused |
 | Group addressing | @mention or reply to bot | `mentionees[].isSelf` (reply-to-bot later) | Same policy, new parser |
-| Recent group context | In-memory buffer | Not in v1 | Deferred |
+| Recent group context | In-memory buffer | `line_group_recent` table, phase 3 | Same block format, new storage |
 | Typing | `sendChatAction` | Loading animation, 1:1 only, renewed every 50 s | Same `TypingNotifier` seam |
 | Streaming | Placeholder + edits every 2.5 s | None; final answer only | Outbound simplified |
 | Reply path | `sendMessage` | Reply (free, ≤ 1 min) or push (billed) | New choice logic |
@@ -497,7 +522,7 @@ live edits, and it costs nothing.
 | — (Telegram has none) | Mention the asker with `textV2` | 1 | Better than Telegram |
 | Trigger by @mention | `mentionees[].isSelf` | 1 | None |
 | Trigger by replying to the bot | `quotedMessageId` in `line_sent_message` | 2 | None |
-| Recent group context on mention | `line_group_recent`, 20 messages / 30 min | 3 | Needs decision `line-group-context` |
+| Recent group context on mention | `line_group_recent`: last 20 messages per group, at most 30 min old, purged every 5 min, read only to build the mention's `<recent_context>` | 3 | Speaker names can show as `Unknown user` (no consent or slow profile lookup) |
 | Photos, video and files in | Content API, transcoding poll | 2 | Content retention unspecified, so fetch at once |
 | Photos out | Presigned image URL (≤ 1 MB used as preview) | 2 | Larger images as links |
 | Files, video and audio out | Links | 2 | LINE bots cannot send files |
@@ -572,9 +597,9 @@ migration and a purge in the maintenance jobs.
 - **Phase 2:** `line_sent_message (installation_id, chat_id, message_id,
   created_at)`, unique on `(installation_id, message_id)`, kept 30 days.
 - **Phase 3:** `line_group_recent (installation_id, chat_id, message_id,
-  sender_name, text, created_at)`, indexed on
-  `(installation_id, chat_id, created_at)`, kept 30 minutes, capped at 20 rows
-  per group. It only exists if `line-group-context` is approved.
+  sender_user_id, text, created_at)`, indexed on
+  `(installation_id, chat_id, created_at)`, kept 30 minutes (purged every
+  5 minutes), capped at 20 rows per group on insert (section 4.2).
 
 Rollback is the down migrations plus disabling the key. No existing data
 changes shape.
@@ -709,7 +734,7 @@ Each phase merges on its own and leaves LINE usable.
 |---|---|---|
 | 1 | Adapter, webhook, install, binding, text in 1:1 and groups (mention, quote, asker mention, 45 s ack), loading animation, reply/push with retry key, plain-text rendering, `/new` and `/issue`, `line_chat` origin, `line_reply_token`, UI, bind page, docs, env pass-through | Text chat with an agent over LINE |
 | 2 | Progress on demand (quick-reply button, postback, `task_message` read); inbound media through the media resolver; outbound images by presigned URL, other attachments as links; quoting a bot message addresses it (`line_sent_message`) | Telegram parity for the everyday flow |
-| 3 | Recent group context (`line_group_recent`, decision `line-group-context`); Flex rendering for code blocks and tables; a default rich menu (New chat, Open Multica); quota and consumption on the installation card | Remaining parity, cost visible |
+| 3 | Recent group context (`line_group_recent`, section 4.2); Flex rendering for code blocks and tables; a default rich menu (New chat, Open Multica); quota and consumption on the installation card | Remaining parity, cost visible |
 
 Rough size of phase 1, based on Telegram's first PR (83 files, about 9,200
 lines with tests): the LINE adapter drops the streaming and delivery state
@@ -751,7 +776,7 @@ gates the end-to-end check).
 | `line-upstream` | Where does LINE land? | (a) Upstream: open a proposal issue on `multica-ai/multica` with this design, then PRs from the fork. The area becomes community-maintained with Yu as maintainer. (b) The private mirror `oaku-ai/multica` only. (c) Build in the mirror first, upstream later. |
 | `line-credentials` | What does the admin paste? | (a) Channel ID + channel secret; Multica mints 15-minute stateless tokens. (b) Channel secret + long-lived access token, as most other projects do. |
 | `line-slow-answer` | What does the chat see while a run takes over a minute? | (a) At 45 s a free "Working on it…" reply with a "Show progress" button; each tap replies, free, with the answer so far and refreshes the reply token (section 4.4; the plain notice ships in phase 1, the button in phase 2). (b) Only the plain notice; the answer by push. (c) Hermes-style "Get the answer" button that holds the answer until tapped. (d) Nothing until the push. |
-| `line-group-context` | Inline recent group messages when the bot is mentioned, as Telegram does? LINE delivers every group message, so this means storing unaddressed chatter briefly. | (a) Yes: keep the last 20 messages per group for at most 30 minutes in `line_group_recent`, purged by the maintenance job, used only to build the mention's context. (b) No: mentions carry only their own text and any quoted message. |
+| `line-group-context` | Decided 2026-11-10: (a). Inline recent group messages when the bot is mentioned, as Telegram does. | (a) Chosen: keep the last 20 messages per group for at most 30 minutes in `line_group_recent`, purged by the maintenance job, used only to build the mention's context (section 4.2). (b) Not chosen: mentions carry only their own text and any quoted message. |
 | `line-copy-language` | Bot copy language (binding prompt, notices)? | (a) Chosen per installation at install: `ja`, `en` or `zh-Hant`, default `ja`. (b) English only, like Telegram. (c) Japanese only. |
 | `line-phase1-scope` | Do groups ship in phase 1? | (a) Yes, 1:1 and groups (Telegram shipped both). (b) 1:1 first, groups in a later phase. |
 | `line-test-channel` | Who creates the LINE test Official Account and channel (needs a LINE Business ID), and where does the public-HTTPS staging backend run? | (a) Yu creates a test provider and channel and passes channel ID and secret privately; staging runs on ovh behind its existing HTTPS proxy. (b) Use an existing branded instance as staging. |
