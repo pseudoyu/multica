@@ -1282,6 +1282,16 @@ type LarkUserBinding struct {
 	BoundAt        pgtype.Timestamptz `json:"bound_at"`
 }
 
+type LineReplyToken struct {
+	InstallationID pgtype.UUID        `json:"installation_id"`
+	ChatID         string             `json:"chat_id"`
+	ReplyToken     pgtype.Text        `json:"reply_token"`
+	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
+	QuoteToken     string             `json:"quote_token"`
+	SenderUserID   string             `json:"sender_user_id"`
+	MessageID      string             `json:"message_id"`
+}
+
 type MaintenanceJob struct {
 	ID             pgtype.UUID        `json:"id"`
 	JobType        string             `json:"job_type"`
