@@ -30,9 +30,13 @@ Recommended shape:
 - The answer uses the free reply API when a reply token from that chat is
   under 50 seconds old, otherwise a push with a deterministic
   `X-Line-Retry-Key`, which makes push retries safe across replicas.
-- Groups are addressed by @mention only, the answer quotes the question, and
-  in groups a run still going after 45 seconds spends the expiring reply token
-  on a free "still working" notice.
+- Groups are addressed by @mention only, and the answer quotes the question.
+- A run still going after 45 seconds spends the expiring reply token on a free
+  "still working" notice.
+- In phase 2 that notice gains a "Show progress" button. Each tap brings a
+  fresh, free reply token and shows the answer so far. This is the closest
+  substitute for Telegram's live edits, and it costs nothing (section 4.8
+  maps every Telegram capability to its LINE equivalent).
 
 ## 1. How channels work today
 
@@ -303,10 +307,13 @@ delivers all group chatter to the webhook, so unaddressed messages are dropped
 before the Router with `not_addressed_in_group`.
 
 A reply-to-bot trigger (Telegram's second rule) needs `quotedMessageId`
-matched against IDs the bot sent. It is left for later, as is Telegram's
-recent-context buffer: an in-memory buffer only sees the share of a group's
-webhooks that land on its own replica, and a database buffer would store every
-group message, which is a privacy choice in its own right.
+matched against IDs the bot sent. It comes in phase 2: every `sentMessages[].id`
+is recorded in `line_sent_message`.
+
+Telegram's recent-context buffer comes in phase 3, if decision
+`line-group-context` approves it. An in-memory buffer only sees the share of a
+group's webhooks that land on its own replica, so it has to be a short-lived
+database buffer, which stores unaddressed group messages.
 
 ### 4.3 Identity binding
 
@@ -369,6 +376,25 @@ kept (the existing Telegram rule, and OpenClaw's).
   anyway, so this costs nothing; the answer then goes by push.
 - **Streaming chunks are rejected:** sending finished paragraphs as separate
   pushes would cost one billed message per chunk per recipient.
+
+**Progress on demand (phase 2).** This is the closest LINE gets to Telegram's
+live edits, and it costs nothing.
+
+- The 45 s "Working on it…" reply, in 1:1 and in groups, carries a quick-reply
+  button "Show progress". The button is a postback with data
+  `progress:<turn_id>` and no `displayText`, so tapping it adds no bubble to
+  the chat.
+- Every postback event carries a fresh reply token. The adapter answers it
+  before the Router sees it: it reads the turn's current task text from
+  `task_message`, which is persisted, so any replica can serve it. It replies
+  with "So far:" and the last 4,500 UTF-16 units, plus the same button.
+- Each tap also refreshes `line_reply_token`. An answer that finishes within
+  50 s of a tap therefore goes out as a free reply.
+- Quick replies show only on iOS and Android. LINE for PC users get the
+  45 s notice and then the pushed answer.
+- A tap after the turn has settled replies "Already answered above."
+- A tap from a group member who is not bound gets the binding hint, the same
+  as any other unbound sender.
 
 **Rendering.**
 
@@ -458,6 +484,27 @@ kept (the existing Telegram rule, and OpenClaw's).
 | `/issue` origin | `telegram_chat` | `line_chat` | Same migration pattern |
 | Copy language | English | See decision `line-copy-language` | |
 
+### 4.8 Getting as close to Telegram as LINE allows
+
+| Telegram capability | Closest LINE equivalent | Phase | Gap that remains |
+|---|---|---|---|
+| Answer grows in place (edits every 2.5 s) | 1:1 loading animation; at 45 s a free notice with "Show progress"; each tap replies, free, with the answer so far | 1 notice, 2 button | Progress is pulled by a tap, not pushed; no button on LINE for PC |
+| Typing indicator in groups | 45 s notice | 1 | Nothing before 45 s in groups |
+| Replies never cost anything | Reply-first with the newest token from the chat, taps refresh it, push only after 50 s | 1–2 | Slow answers in groups cost one message per member |
+| Unlimited length in chunks | ≤ 5 bubbles of 4,500 units, then a link to the Multica chat | 1 | About 22,000 characters per answer in LINE itself |
+| Markdown as HTML | Plain text; Flex bubbles for code blocks and tables | 1, Flex 3 | No inline bold or links |
+| Quote the question | `quoteToken` on the first bubble | 1 | None |
+| — (Telegram has none) | Mention the asker with `textV2` | 1 | Better than Telegram |
+| Trigger by @mention | `mentionees[].isSelf` | 1 | None |
+| Trigger by replying to the bot | `quotedMessageId` in `line_sent_message` | 2 | None |
+| Recent group context on mention | `line_group_recent`, 20 messages / 30 min | 3 | Needs decision `line-group-context` |
+| Photos, video and files in | Content API, transcoding poll | 2 | Content retention unspecified, so fetch at once |
+| Photos out | Presigned image URL (≤ 1 MB used as preview) | 2 | Larger images as links |
+| Files, video and audio out | Links | 2 | LINE bots cannot send files |
+| `/new`, `/issue` | Same commands; quick replies and a default rich menu for New chat / Open Multica | 1, menu 3 | None; LINE's menu is better than typing |
+| Quoted file attached for the agent | Not available: LINE gives `quotedMessageId` but no API returns the quoted content | — | Only files already seen by the bot (phase 2 media rows) can be matched |
+| No public URL needed | Public HTTPS webhook | 1 | Our fleet already serves HTTPS behind Caddy |
+
 ## 5. Configuration, data model and migrations
 
 **Environment.**
@@ -518,6 +565,16 @@ outbound deletes it on use. A token older than 50 s is useless, so a periodic
 `DELETE … WHERE received_at < now() - interval '1 hour'` in the existing
 maintenance jobs keeps the table small. Chat-binding cleanup deletes the row in
 application code, as the no-cascade rule requires.
+
+Later phases add two small LINE tables. Each has its own `CONCURRENTLY` index
+migration and a purge in the maintenance jobs.
+
+- **Phase 2:** `line_sent_message (installation_id, chat_id, message_id,
+  created_at)`, unique on `(installation_id, message_id)`, kept 30 days.
+- **Phase 3:** `line_group_recent (installation_id, chat_id, message_id,
+  sender_name, text, created_at)`, indexed on
+  `(installation_id, chat_id, created_at)`, kept 30 minutes, capped at 20 rows
+  per group. It only exists if `line-group-context` is approved.
 
 Rollback is the down migrations plus disabling the key. No existing data
 changes shape.
@@ -651,8 +708,8 @@ Each phase merges on its own and leaves LINE usable.
 | Phase | Scope | Usable result |
 |---|---|---|
 | 1 | Adapter, webhook, install, binding, text in 1:1 and groups (mention, quote, asker mention, 45 s ack), loading animation, reply/push with retry key, plain-text rendering, `/new` and `/issue`, `line_chat` origin, `line_reply_token`, UI, bind page, docs, env pass-through | Text chat with an agent over LINE |
-| 2 | Inbound media through the media resolver, outbound images by presigned URL, other attachments as links | Agents see and return images |
-| 3 | Quota and consumption on the installation card; Flex card for `/issue` results; quick-reply buttons for `/new` | Cost visible; richer replies |
+| 2 | Progress on demand (quick-reply button, postback, `task_message` read); inbound media through the media resolver; outbound images by presigned URL, other attachments as links; quoting a bot message addresses it (`line_sent_message`) | Telegram parity for the everyday flow |
+| 3 | Recent group context (`line_group_recent`, decision `line-group-context`); Flex rendering for code blocks and tables; a default rich menu (New chat, Open Multica); quota and consumption on the installation card | Remaining parity, cost visible |
 
 Rough size of phase 1, based on Telegram's first PR (83 files, about 9,200
 lines with tests): the LINE adapter drops the streaming and delivery state
@@ -675,14 +732,11 @@ public route, but no new service.
 ## 11. Not in scope
 
 - Streaming by repeated pushes.
-- Rich menus.
+- Per-user rich menus.
 - LINE Login.
 - LINE's account-link flow.
 - Multicast or broadcast.
-- Recent group context.
-- Reply-to-bot without a mention.
 - Edited messages (`messageEdited`).
-- Postback actions beyond phase 3 quick replies.
 - Native video and audio out.
 - Sending files (LINE has no API for it).
 
@@ -696,7 +750,8 @@ gates the end-to-end check).
 |---|---|---|
 | `line-upstream` | Where does LINE land? | (a) Upstream: open a proposal issue on `multica-ai/multica` with this design, then PRs from the fork. The area becomes community-maintained with Yu as maintainer. (b) The private mirror `oaku-ai/multica` only. (c) Build in the mirror first, upstream later. |
 | `line-credentials` | What does the admin paste? | (a) Channel ID + channel secret; Multica mints 15-minute stateless tokens. (b) Channel secret + long-lived access token, as most other projects do. |
-| `line-slow-answer` | What does a group see while a run takes over a minute? | (a) At 45 s a free "Working on it…" reply; the answer by push. (b) Hermes-style: at 45 s a "Get the answer" postback button; a tap gives a fresh free reply token for the answer, at the cost of a tap. (c) Nothing until the push. |
+| `line-slow-answer` | What does the chat see while a run takes over a minute? | (a) At 45 s a free "Working on it…" reply with a "Show progress" button; each tap replies, free, with the answer so far and refreshes the reply token (section 4.4; the plain notice ships in phase 1, the button in phase 2). (b) Only the plain notice; the answer by push. (c) Hermes-style "Get the answer" button that holds the answer until tapped. (d) Nothing until the push. |
+| `line-group-context` | Inline recent group messages when the bot is mentioned, as Telegram does? LINE delivers every group message, so this means storing unaddressed chatter briefly. | (a) Yes: keep the last 20 messages per group for at most 30 minutes in `line_group_recent`, purged by the maintenance job, used only to build the mention's context. (b) No: mentions carry only their own text and any quoted message. |
 | `line-copy-language` | Bot copy language (binding prompt, notices)? | (a) Chosen per installation at install: `ja`, `en` or `zh-Hant`, default `ja`. (b) English only, like Telegram. (c) Japanese only. |
 | `line-phase1-scope` | Do groups ship in phase 1? | (a) Yes, 1:1 and groups (Telegram shipped both). (b) 1:1 first, groups in a later phase. |
 | `line-test-channel` | Who creates the LINE test Official Account and channel (needs a LINE Business ID), and where does the public-HTTPS staging backend run? | (a) Yu creates a test provider and channel and passes channel ID and secret privately; staging runs on ovh behind its existing HTTPS proxy. (b) Use an existing branded instance as staging. |
