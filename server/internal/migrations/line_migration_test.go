@@ -31,7 +31,7 @@ func TestLineOriginMigrationsUpDownAndCatalog(t *testing.T) {
 
 	assertLineOriginRejected(t, ctx, conn, "00000000-0000-4000-8000-000000000001")
 
-	applyMigrationFile(t, ctx, conn, "630_issue_origin_line_chat.up.sql")
+	applyMigrationFile(t, ctx, conn, "637_issue_origin_line_chat.up.sql")
 	assertLineOriginConstraint(t, ctx, conn, false, true)
 	if _, err := conn.Exec(ctx, `INSERT INTO issue (id, origin_type) VALUES ($1, 'line_chat')`, "00000000-0000-4000-8000-000000000002"); err != nil {
 		t.Fatalf("insert line_chat after widening constraint: %v", err)
@@ -40,15 +40,15 @@ func TestLineOriginMigrationsUpDownAndCatalog(t *testing.T) {
 		t.Fatalf("telegram_chat must stay allowed: %v", err)
 	}
 
-	applyMigrationFile(t, ctx, conn, "631_issue_origin_line_chat_validate.up.sql")
+	applyMigrationFile(t, ctx, conn, "638_issue_origin_line_chat_validate.up.sql")
 	assertLineOriginConstraint(t, ctx, conn, true, true)
 
-	applyMigrationFile(t, ctx, conn, "631_issue_origin_line_chat_validate.down.sql")
+	applyMigrationFile(t, ctx, conn, "638_issue_origin_line_chat_validate.down.sql")
 	assertLineOriginConstraint(t, ctx, conn, false, true)
 	if _, err := conn.Exec(ctx, `DELETE FROM issue WHERE origin_type = 'line_chat'`); err != nil {
 		t.Fatalf("remove LINE row before narrowing rollback: %v", err)
 	}
-	applyMigrationFile(t, ctx, conn, "630_issue_origin_line_chat.down.sql")
+	applyMigrationFile(t, ctx, conn, "637_issue_origin_line_chat.down.sql")
 	assertLineOriginConstraint(t, ctx, conn, true, false)
 	assertLineOriginRejected(t, ctx, conn, "00000000-0000-4000-8000-000000000003")
 }
@@ -57,8 +57,8 @@ func TestLineReplyTokenMigrationsUpDown(t *testing.T) {
 	conn := lineMigrationConn(t)
 	ctx := context.Background()
 
-	applyMigrationFile(t, ctx, conn, "632_line_reply_token.up.sql")
-	applyMigrationFile(t, ctx, conn, "633_line_reply_token_chat_index.up.sql")
+	applyMigrationFile(t, ctx, conn, "639_line_reply_token.up.sql")
+	applyMigrationFile(t, ctx, conn, "640_line_reply_token_chat_index.up.sql")
 
 	inst := "00000000-0000-4000-8000-0000000000aa"
 	if _, err := conn.Exec(ctx, `INSERT INTO line_reply_token (installation_id, chat_id, reply_token) VALUES ($1, 'C1', 'first')`, inst); err != nil {
@@ -70,8 +70,8 @@ func TestLineReplyTokenMigrationsUpDown(t *testing.T) {
 		t.Fatalf("second row for one chat: got %v, want unique violation", err)
 	}
 
-	applyMigrationFile(t, ctx, conn, "633_line_reply_token_chat_index.down.sql")
-	applyMigrationFile(t, ctx, conn, "632_line_reply_token.down.sql")
+	applyMigrationFile(t, ctx, conn, "640_line_reply_token_chat_index.down.sql")
+	applyMigrationFile(t, ctx, conn, "639_line_reply_token.down.sql")
 	var exists bool
 	if err := conn.QueryRow(ctx, `SELECT to_regclass('line_reply_token') IS NOT NULL`).Scan(&exists); err != nil {
 		t.Fatalf("inspect line_reply_token: %v", err)
