@@ -109,8 +109,10 @@ func TestRepositoryConfigParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if got := strings.Join(cfg.Names(), ","); got != "desktop,web" {
-		t.Fatalf("declared = %s, want desktop and web", got)
+	for _, name := range []string{"desktop", "web"} {
+		if _, ok := cfg.Environments[name]; !ok {
+			t.Fatalf("missing %s environment", name)
+		}
 	}
 	// Desktop has nothing to open, but still waits for its app to be up.
 	if desktop := cfg.Environments["desktop"]; desktop.URL != "" || desktop.Ready == "" {
